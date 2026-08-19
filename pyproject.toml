@@ -1,0 +1,18 @@
+[project]
+name = "harness-evolve"
+version = "0.1.0"
+description = "Regression-gated, evidence-rich search over simulator-grounding adapters (SIGA-Evolve v2)"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+gepa = ["gepa>=0.1"]
+dev = ["pytest>=8.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+filterwarnings = ["error::DeprecationWarning"]

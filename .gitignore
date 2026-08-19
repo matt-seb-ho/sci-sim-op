@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+# search working dirs: candidates, eval cache, run artifacts
+.evolve/
+runs/
