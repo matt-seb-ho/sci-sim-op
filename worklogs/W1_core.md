@@ -86,3 +86,72 @@ and unearned-edit detection.
 This is the specific gap that let the predecessor fail silently: it had no
 end-to-end test, so a reward channel that returned `None` for every task ran for
 three rounds unnoticed.
+
+---
+
+## Session 1, later: proposer and integration
+
+### The proposer emits bounded edits, not whole files
+
+`proposers/edits.py` + `proposers/llm.py`. One `<edit>` per proposal, over
+`add` / `delete` / `replace` of a single line, following SkillOpt
+(arXiv:2605.23904)'s bounded edit model for a single skill document under a
+frozen agent.
+
+Two predecessor failures this fixes structurally rather than by instruction:
+
+- **Attribution.** A rewritten cheatsheet differs from its parent in a dozen
+  ways, so an accept/reject verdict cannot say which mattered. After three rounds
+  nobody could name what any change had done.
+- **Monotone growth.** A model asked to "produce the new cheatsheet" produces the
+  old one plus something. 270 B to 3159 B in three rounds. With a bounded
+  vocabulary, deletion is a first-class move rather than something the model has
+  to volunteer.
+
+Anchor matching is deliberately lenient — exact, then normalised, then fuzzy
+above 0.82 — because a model quoting a line back will re-wrap or re-punctuate it,
+and failing the whole proposal over a stray space wastes a call. It will not
+match a merely similar line, which would silently edit the wrong assertion. A
+missing anchor **raises** rather than no-opping: a silent no-op would be
+evaluated and gated as a real proposal, spending a full round to discover the
+artifact never changed.
+
+### Derived constraints are handed over, not guessed
+
+The proposer prompt has a section for constraints the validator has already
+stated (`evidence/directives.py`), presented as settled, with an instruction not
+to spend an edit rediscovering them. This is the whole point of the directive
+mining: the expensive thing is not writing a constraint, it is finding out
+whether one is true. When the simulator has already enumerated the legal action
+space, that costs nothing.
+
+### Integration items closed
+
+- **`KNOWN_CHECKS` was a snapshot of a registry.** Four hardcoded names, so a
+  stop policy naming `cross_section_refs` — a real, shipped check — failed
+  validation. The search space silently excluded every check beyond that list.
+  Now resolved from the live registry via `resolve_known_checks()`, with a lazy
+  failure-tolerant import so `core` stays standalone.
+- **Budget ledger wired.** Every rollout is recorded including screened-out,
+  rejected, and probe rollouts. A search that counts only its successes
+  understates its own budget, which is the accounting error that lets "evolution
+  beat the baseline" mean "evolution had more inference compute".
+- **`docs/INTEGRATION_REQUIREMENTS.md`** records R1, which is blocking and lives
+  in repo3: `docker_cmd.py`'s fixed `GEOS_HOOK_*` allowlist drops the two
+  `GEOS_EVOLVE_*` variables at the container boundary, so the search would vary
+  feedback shape while the hook saw a constant. Same failure class as the dead
+  reward channel, and equally invisible in logs. The doc gives the test that
+  settles it: run one task at each feedback shape and diff the hook's event log.
+
+### Still open
+
+1. Screening margin and probe cadence are unvalidated against real variance.
+2. The anchor slice is still hand-picked; Janus's coverage/boundary/fresh
+   construction is likely better.
+3. The gate has no notion of seed noise — a -0.05 per-task threshold may be
+   inside noise at n=2. The right fix is probably to require the regression to
+   hold across seeds rather than on the seed mean.
+4. `RandomEditProposer` should be run as a real arm, not just a test fixture.
+   Given that harness-updating capability is reported flat across model tiers,
+   "does an LLM proposer beat random edits under the same gate" is a result
+   either way.
