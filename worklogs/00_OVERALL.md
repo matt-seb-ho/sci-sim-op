@@ -649,3 +649,75 @@ model × harness configuration rather than by a system name.
 
 404 tests, 16 commits. Two experiments, both $0, both producing findings rather
 than just exercising code.
+
+---
+
+## 2026-08-19 — session 1, pass 6: the budget planner and the runbook
+
+**Suite: 415 passed, 2 skipped.** 18 commits.
+
+### The dry run's failure became a tool
+
+Experiment 02's budget-matching failure was structural, so it is now a planning
+step rather than a warning in a document. `evaluation/budget.py` +
+`evolve.py plan`.
+
+The relation: parallel scaling spends `k` draws per cell, so a baseline can only
+be matched at **multiples of `|held_out| × n_seeds`**. A budget chosen for any
+other reason lands between the reachable points, and the mismatch cannot be
+repaired afterwards — by the time it is visible the rollouts are spent.
+
+For the expected shape (10 held-out, 5 final seeds, 8-task anchor, 2 search
+seeds) the planner produces a hard ceiling nobody had computed:
+
+| search rollouts | k | candidates | ≈USD | ≈wall |
+|---:|---:|---:|---:|---:|
+| 150 | 3 | 9 | $10 | 16 h |
+| **350** | **7** | **21** | **$23** | **37 h** |
+
+**21 candidates is the ceiling**, because past k=7 the sequential arm runs
+through the stop policy's retry cap and cannot be constructed without changing
+the harness — unfreezing the thing the claim holds fixed. That is a real
+constraint on the experiment design, and it was invisible until the protocol was
+actually executed.
+
+Recommendation recorded: **150 rollouts, ~9 candidates.** Small enough to rerun
+after a mistake, large enough that a null result is informative rather than a
+non-attempt.
+
+One design detail worth noting: `nearest()` prefers budgets where *every* arm can
+be built, not merely where the ratio works out. A `k` the sequential arm cannot
+express leaves the comparison short an arm, which is the same problem relocated.
+
+### `docs/RUNBOOK.md`
+
+Ordered so each step either removes a way for the result to be meaningless or is
+cheap enough that doing it out of order wastes money. Steps 1–4 cost nothing and
+gate step 5:
+
+1. plan the budget **against the held-out slice**, before anything else
+2. clear preflight — including the R1 test that settles whether the stop policy
+   reaches the hook (run one task at each feedback shape, diff the hook log; do
+   not skip because the config looks right, that is the exact failure mode)
+3. verify the validator actually emits repair directives, not just verdicts —
+   if `actionable_fraction` reads 0%, the derived-constraint mechanism does not
+   apply to this build and should not be claimed
+4. recalibrate the hygiene gate against the real tree, with both conditions
+   holding: leaky artifacts still block, the legitimate adapter produces no
+   errors. If the second fails, raise thresholds rather than disabling a rule —
+   a gate people route around is worse than no gate
+5. baseline, freeze the slices, then search
+6. final evaluation, once, verdict read before the numbers
+
+It closes with the pre-registered kill criterion, stated as a commitment rather
+than a caveat: **if the search returns its seed under the no-regression floor,
+that is the predicted outcome — report it and stop.** A gate tuned until it
+admits a winner is not a gate, and the number it produced would be exactly the
+kind this project exists to stop producing.
+
+### Where things stand
+
+Everything buildable without the real environment is built. The remaining work is
+gated on things this machine does not have: the ground-truth tree, a Docker
+daemon, the GEOS container, and an API key. The runbook is the handoff for when
+they exist.
