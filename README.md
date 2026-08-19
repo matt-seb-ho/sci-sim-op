@@ -99,7 +99,7 @@ src/harness_evolve/
   runners/      mock / cached / subprocess
   checks/       check-plugin sandbox and built-ins
 scripts/        evolve.py CLI, experiments
-tests/          401 tests, offline, ~4s
+tests/          404 tests, offline, ~4s
 ```
 
 ## Status

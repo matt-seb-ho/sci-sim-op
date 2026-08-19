@@ -511,3 +511,68 @@ Two honesty properties, both tested:
 3. Resolve R1 in repo3 before any real run: the container drops both
    `GEOS_EVOLVE_*` variables, so the stop policy would be searched over a knob
    nothing reads.
+
+---
+
+## 2026-08-19 — session 1, pass 4: CLI, README, and what building the entry point found
+
+**Suite: 404 passed, 2 skipped.** `scripts/evolve.py` with `demo`, `preflight`,
+`slices`, `audit`. README written.
+
+Building the entry point surfaced two real bugs within one run, which is the
+whole argument for building it rather than leaving the library to be assembled
+by whoever comes next.
+
+### Bug 1 — emptying a component destroyed it
+
+`RandomEditProposer` deleted the last line of the primer. `with_edits` treated an
+empty string as "remove the file", so the next `validate()` failed on a component
+whose manifest entry pointed at nothing. "This cheatsheet has no lessons yet" is
+a legitimate state and deleting the last line is the obvious way to reach it.
+Declared components now keep their file when emptied; only files no component
+claims are removed.
+
+### Bug 2 — per-step gating does not bound where a lineage ends up
+
+The first demo run produced a winner whose zero rate was **four times the seed's**
+— while every accepted candidate had passed its parent comparison cleanly. A
+sequence of individually acceptable steps walked reliability steadily downhill,
+because each was only ever compared to the step before it.
+
+This is a classic and it is worth stating in general terms: **no per-step
+regression does not imply no cumulative regression.** The gate now also bounds
+drift against the *seed*, with `max_extra_zeros_vs_root = 0` — suppressing
+zero-score terminations is the entire purpose of the adapter, so a lineage
+ending with more of them than it started with has lost the plot regardless of
+what its mean did. The root bound is looser than the per-step bound, because some
+drift is the point of searching; it is not absent.
+
+### The residue the gate cannot reach, named rather than hidden
+
+After the fix, the demo *still* shows a gap between the winner's score at the
+search seeds and at fresh seeds. That is not cumulative drift and no gate can
+bound it: selection ran at seeds (1, 2) and the re-score runs at (7, 8, 9), so
+nothing the gate measured contains the information. It is seed overfitting, it is
+exactly what a held-out re-score exists to reveal, and with 2 search seeds and a
+stochastic zero rate some of it is unavoidable. More search seeds is the only fix
+that addresses the cause rather than the symptom — and that is a budget decision,
+not a code decision.
+
+The demo now prints this explicitly, so it reads as a property of the setup
+rather than a bug in the loop.
+
+### `preflight` as a first-class command
+
+The expensive failure mode in this kind of system is not a crash — it is a run
+that completes and means nothing. So every known way for that to happen is
+checked before anything starts, and `preflight` currently *refuses*:
+
+```
+BLOCKER: ground-truth directory not found; the content, numeric and structural
+         hygiene rules would be inert
+BLOCKER: UNVERIFIED: the runner must forward GEOS_EVOLVE_FEEDBACK_SHAPE and
+         GEOS_EVOLVE_CHECKS into the container, and the hook must read them
+2 blocker(s). A run started now would complete and mean less than it appears to.
+```
+
+That last line is the one this whole project exists because of.
