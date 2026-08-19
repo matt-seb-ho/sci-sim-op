@@ -785,3 +785,93 @@ saving on top of the resume property, not an artifact.
 - everything downstream of those — needs Docker and the GEOS image
 
 `docs/RUNBOOK.md` is the handoff for when they exist.
+
+---
+
+## 2026-08-19 — session 1, passes 7–9
+
+**Suite: 429 passed, 2 skipped.** 22 commits.
+
+### Pass 7 — `runners/recording.py`
+
+Write-through recording. Covered in its own commit and in `W1_core.md`; the
+short version is that the budget planner puts a credible search at 16–37 hours
+against a container, an API, and a machine that may reboot, and a crash that
+forces a restart from zero makes the experiment something nobody attempts twice.
+"We did not re-run it" and "we lowered the bar" are the same decision under
+pressure.
+
+Second use, equally important: the rollouts are the expensive part and every
+statistic computed from them is cheap. With them on disk the whole evaluation
+recomputes for free against a different noise band, an added baseline, or a
+corrected bug.
+
+Verified through the CLI — a second run of the demo executes 0 rollouts and
+replays all 138. The 22 replays *within* the first run are genuine within-run
+deduplication across screening and full evaluation.
+
+### Pass 8 — measuring the portability claim
+
+The architecture asserted that adding a simulator is "implementing one class".
+Four implementations exist, so it was measurable rather than assertable. Measured
+with `ast`:
+
+| simulator | total | spec class | support |
+|---|---:|---:|---:|
+| OpenFOAM | 268 | 153 | 115 |
+| LAMMPS | 339 | 196 | 143 |
+| GEOS | 1149 | 244 | **905** |
+
+**The interface cost is flat at 150–300 lines; the variable cost is entirely the
+scorer.** GEOS's 905 lines is TreeSim and nothing else, and OpenFOAM and LAMMPS
+are cheap *because they decline to score*, not because their interfaces are
+simpler.
+
+So the honest claim is: porting the harness is about a day; deciding what
+"correct" means for a new simulator is the actual project, and this architecture
+does not make that cheaper — it only stops that question from contaminating
+everything else. That is more useful than the original because it localizes the
+cost, and it implies a sequence (`docs/ADDING_A_SIMULATOR.md`): parse and leak
+surface, then validate, then score. The first two already support the hygiene
+gate, the completeness check, the derived-constraint mechanism and the
+stop-policy search — so a new simulator is worth adding *before* it can be
+scored.
+
+### Pass 9 — one real proposer call
+
+Every other proposer test injects a canned response, which verifies the parsing
+and says nothing about whether a real model given this prompt produces a
+compliant edit. `scripts/smoke_llm_proposer.py`, one `claude-opus-5` call,
+≈$0.05, documented in `docs/EXPERIMENT_03_proposer_smoke.md`.
+
+First call, no retries. The model replaced a *positive* assertion with a
+*negative constraint*:
+
+> ~~Poroelastic problems need a coupled solver plus a matching constitutive block.~~
+> **Do not add solid-mechanics or porosity-evolution constitutive models unless a
+> mechanics solver is actually in the deck.**
+
+That is recommendation (iii) from the prior work reached unprompted — the model
+identified from the evidence that the positive line was itself causing the
+surplus. Four lines before, four after. And it left the derived `gravityVector`
+constraint alone, which is the whole economic argument for deriving constraints
+from validator output: the edit went somewhere the validator had not already
+settled.
+
+n=1 deliberately. The question was whether the contract is followable; how often
+is only worth paying for once that is settled.
+
+`proposers/backends.py` separates transport from prompt design, with Anthropic
+and OpenRouter backends and resolution by what is configured rather than by
+preference. `anthropic` is an optional dependency — a search that runs offline
+against a mock is worth more than one that cannot start without a network client.
+
+### Two questions raised with the user, unanswered
+
+1. Whether further API spend is acceptable. The obvious next experiment is a
+   cheap-proposer comparison (~$0.20), which is directly interesting because
+   harness-*updating* capability is reported flat across model tiers and this
+   task is domain-knowledge-bound rather than general. **Not run** — asked, no
+   answer, so no further spend.
+2. Whether to keep the loop running now that substantive work is
+   infrastructure-gated.
