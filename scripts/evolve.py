@@ -38,6 +38,7 @@ from harness_evolve.evidence.corpus import build_evidence  # noqa: E402
 from harness_evolve.hygiene.corpus import GroundTruthCorpus  # noqa: E402
 from harness_evolve.hygiene.gate import check_candidate  # noqa: E402
 from harness_evolve.proposers.scripted import RandomEditProposer  # noqa: E402
+from harness_evolve.runners.recording import RecordingRunner  # noqa: E402
 from harness_evolve.simulators.base import SimulatorRegistry  # noqa: E402
 
 
@@ -147,12 +148,17 @@ def cmd_demo(args: argparse.Namespace) -> int:
     tasks = [f"task_{i}" for i in range(8)]
     probe = ["probe_a", "probe_b"]
 
-    runner = MockRunner(
+    # Wrapped in a recorder so the demo exercises the resume path too: re-running
+    # with the same --corpus replays instead of re-executing, which is what makes
+    # a real multi-hour search survivable.
+    inner = MockRunner(
         MockSimulator(),
         world=MockWorld(task_difficulty={"task_0": -0.35, "task_1": -0.30},
                         noise=0.04, zero_rate=0.15),
         root=root,
     )
+    runner = RecordingRunner(inner, Path(args.corpus) if args.corpus
+                             else root / "rollouts.jsonl")
 
     print("== baseline, to identify which tasks are in play ==")
     seed = _demo_seed()
@@ -213,7 +219,8 @@ def cmd_demo(args: argparse.Namespace) -> int:
         print("\n  The search returned (approximately) its seed. That is a real "
               "outcome, not an error -- see docs/EXPERIMENT_01_proposer_control.md")
 
-    print(f"\nartifacts: {root}")
+    print(f"\n{runner.summary()}")
+    print(f"artifacts: {root}")
     print(f"decision log: {root / 'decisions.jsonl'}")
     return 0
 
@@ -292,6 +299,9 @@ def main() -> int:
     p = sub.add_parser("demo", help="full search on the mock simulator")
     p.add_argument("--budget", type=int, default=10)
     p.add_argument("--anchor", type=int, default=6)
+    p.add_argument("--corpus", default="",
+                   help="reuse a rollout corpus; re-running with the same path "
+                        "replays instead of re-executing")
     p.set_defaults(fn=cmd_demo)
 
     p = sub.add_parser("preflight", help="report what would block a real run")

@@ -721,3 +721,67 @@ Everything buildable without the real environment is built. The remaining work i
 gated on things this machine does not have: the ground-truth tree, a Docker
 daemon, the GEOS container, and an API key. The runbook is the handoff for when
 they exist.
+
+---
+
+## 2026-08-19 — session 1, pass 7: making a long run survivable
+
+**Suite: 427 passed, 2 skipped.** 19 commits.
+
+`runners/recording.py` — a `RecordingRunner` that wraps any runner, appends every
+rollout durably as it completes, and replays what it already has on a restart.
+
+### Why this and not something else
+
+Everything still buildable without the real environment is now built, so the
+question was which remaining gap actually costs something. This one does. The
+budget planner puts a credible search at 16–37 hours of wall-clock against a
+container, an external API, and a machine that may reboot. A crash at hour twelve
+that forces a restart from zero does not merely cost twelve hours — it makes the
+experiment something nobody wants to attempt twice, and that is how protocols get
+quietly relaxed. "We did not re-run it" and "we lowered the bar" are the same
+decision under pressure.
+
+The same mechanism answers a second problem. The statistics, baselines, verdict
+criterion and tail measures are all cheap; the **rollouts** are the expensive
+part. With them on disk the entire evaluation can be recomputed for nothing —
+against a different noise band, an added baseline, a corrected bug. Without it,
+every question asked after a run costs another run, and the honest prediction is
+that it does not get asked.
+
+### Design points worth keeping
+
+- **Append, flush, fsync per rollout.** Buffering would lose precisely the work a
+  crash makes expensive. A few milliseconds against a rollout measured in minutes
+  is not a tradeoff worth reasoning about.
+- **A truncated final line is expected, not exceptional.** It is what an
+  interrupted write looks like — the exact situation this class exists for — so
+  it is skipped, counted, and reported, never fatal.
+- **A failed write keeps the rollout.** Losing the *record* of a completed
+  rollout is bad; discarding the rollout itself is worse. The default keeps the
+  result and counts the failure loudly; `strict_writes` inverts that for when
+  resumability matters more than the current run.
+- **Validator events survive the round trip.** Stop-hook decisions are the
+  evidence half the stop-policy search rests on; a corpus that dropped them could
+  not support an offline re-analysis of it.
+
+### Verified through the CLI
+
+```
+first run:   138 rollout(s): 116 executed, 22 replayed from the corpus
+second run:  138 rollout(s):   0 executed, 138 replayed
+```
+
+The 22 replays in the *first* run are within-run deduplication — the same
+candidate scored twice across screening and full evaluation — which is a real
+saving on top of the resume property, not an artifact.
+
+### Remaining work is genuinely gated on infrastructure
+
+- hygiene threshold recalibration — needs the ground-truth tree
+- R1 (the container dropping the stop-policy environment) — needs a repo3 change
+  and a container to test it against
+- `LLMProposer` versus the random control as a real arm — needs an API key
+- everything downstream of those — needs Docker and the GEOS image
+
+`docs/RUNBOOK.md` is the handoff for when they exist.

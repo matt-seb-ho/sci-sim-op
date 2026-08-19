@@ -58,9 +58,11 @@ model-specific.
 
 - **`SimulatorSpec`** — parse, validate, score, diagnose, contamination-block.
   Adding a simulator is implementing one class.
-- **`RolloutRunner`** — real / cached-replay / mock, behind one interface. The
-  cached runner makes offline protocol work possible for ~$0; the mock runner
-  makes the search loop testable end to end.
+- **`RolloutRunner`** — real / recording / cached-replay / mock, behind one
+  interface. The recording runner makes a multi-hour search resumable after a
+  crash and turns its rollouts into a corpus every later statistic can be
+  recomputed from for free; the mock runner makes the search loop testable end
+  to end.
 - **`Proposer`** — one bounded edit per call, with a prediction attached.
 
 ## What is unusual here
