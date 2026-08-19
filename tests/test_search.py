@@ -442,3 +442,52 @@ def test_without_per_seed_data_the_gate_stays_conservative():
 
     r = RegressionGate().evaluate({"a": 0.9, "b": 0.45}, {"a": 0.8, "b": 0.85})
     assert not r.accepted
+
+
+def test_cumulative_drift_from_the_seed_is_bounded():
+    """Per-step gating does not bound where a lineage ends up.
+
+    Each step here is individually acceptable against its immediate parent, and
+    the sequence walks reliability steadily downhill. This is not hypothetical:
+    the first end-to-end run produced a winner whose zero rate was four times the
+    seed's, with every accepted candidate having passed its parent comparison.
+    """
+    from harness_evolve.core.acceptance import RegressionGate
+
+    gate = RegressionGate()
+    root = {"a": 0.90, "b": 0.90, "c": 0.90}
+    # The lineage has already drifted on c; this step drifts a little further
+    # while gaining elsewhere, so it passes every parent-relative clause.
+    parent = {"a": 0.90, "b": 0.90, "c": 0.835}
+    child = {"a": 0.95, "b": 0.95, "c": 0.790}
+
+    without_root = gate.evaluate(child, parent)
+    assert without_root.accepted, "each step is fine against its parent"
+
+    with_root = gate.evaluate(child, parent, root_scores=root)
+    assert not with_root.accepted
+    assert "cumulative regression vs seed" in with_root.reason
+
+
+def test_a_lineage_may_not_end_with_more_zeros_than_it_started_with():
+    """Suppressing zero-score terminations is the entire point of the adapter.
+    A lineage that ends with more of them has lost the plot whatever its mean
+    did."""
+    from harness_evolve.core.acceptance import RegressionGate
+
+    r = RegressionGate().evaluate(
+        {"a": 0.95, "b": 0.0}, {"a": 0.60, "b": 0.0},
+        root_scores={"a": 0.60, "b": 0.60},
+    )
+    assert not r.accepted
+    assert "cumulative reliability drift" in r.reason
+
+
+def test_ordinary_progress_is_not_blocked_by_the_root_guard():
+    from harness_evolve.core.acceptance import RegressionGate
+
+    r = RegressionGate().evaluate(
+        {"a": 0.95, "b": 0.88}, {"a": 0.90, "b": 0.86},
+        root_scores={"a": 0.80, "b": 0.85},
+    )
+    assert r.accepted, r.reason

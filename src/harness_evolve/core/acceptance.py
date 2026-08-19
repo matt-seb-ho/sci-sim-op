@@ -36,6 +36,7 @@ from typing import Any, Mapping, Sequence
 DEFAULT_MAX_TASK_REGRESSION = 0.05
 DEFAULT_MAX_MEAN_REGRESSION = 0.005
 DEFAULT_MAX_EFFICIENCY_RATIO = 1.15
+DEFAULT_MAX_CUMULATIVE_REGRESSION = 0.10
 
 
 @dataclass
@@ -76,6 +77,9 @@ class RegressionGate:
         mean for tail safety can still be explored.
     max_efficiency_ratio:
         Hard ceiling on tool calls and wall-clock relative to the parent.
+    max_cumulative_regression / max_extra_zeros_vs_root:
+        Bounds against the *seed*, not the immediate parent. Per-step gating
+        alone does not bound where a lineage ends up.
     require_zero_rate_non_increasing:
         Reject any candidate that introduces a new failures-as-zero
         termination, regardless of what it does to the mean. Under
@@ -86,6 +90,14 @@ class RegressionGate:
     max_mean_regression: float = DEFAULT_MAX_MEAN_REGRESSION
     max_efficiency_ratio: float = DEFAULT_MAX_EFFICIENCY_RATIO
     require_zero_rate_non_increasing: bool = True
+    #: Bound on drift from the seed, accumulated over the whole lineage. Looser
+    #: than the per-step bound because some drift is the point of searching.
+    max_cumulative_regression: float = DEFAULT_MAX_CUMULATIVE_REGRESSION
+    #: How many more tasks may sit at zero than did at the seed. Zero by
+    #: default: the entire reason these adapters exist is to suppress
+    #: zero-score terminations, so a lineage that ends with more of them than it
+    #: started with has lost the plot regardless of what its mean did.
+    max_extra_zeros_vs_root: int = 0
 
     # -- the gate ---------------------------------------------------------
     def evaluate(
@@ -99,6 +111,8 @@ class RegressionGate:
         checks_ok: bool = True,
         child_by_seed: Mapping[str, Sequence[float]] | None = None,
         parent_by_seed: Mapping[str, Sequence[float]] | None = None,
+        root_scores: Mapping[str, float] | None = None,
+        root_by_seed: Mapping[str, Sequence[float]] | None = None,
     ) -> GateResult:
         """Gate a child against its parent.
 
@@ -188,7 +202,47 @@ class RegressionGate:
                     f"introduces failures-as-zero on {', '.join(new_zeros)}"
                 )
 
-        # (5) no efficiency regression
+        # (5) no cumulative drift away from the seed
+        #
+        # Gating each step against its immediate parent does not bound where the
+        # lineage ends up: a sequence of individually acceptable steps can walk
+        # reliability steadily downhill, since each one is only compared to the
+        # step before it. This showed up the first time the loop was run end to
+        # end -- every accepted candidate passed its parent comparison, and the
+        # winner's zero rate was four times the seed's.
+        #
+        # The bound against the root is looser than the per-step one, because
+        # some drift is the point of searching. It is not absent.
+        if root_scores:
+            root_common = sorted(set(child_scores) & set(root_scores))
+            if root_common:
+                root_deltas = {
+                    t: child_scores[t] - root_scores[t] for t in root_common
+                }
+                worst_root_task = min(root_deltas, key=lambda t: root_deltas[t])
+                worst_root = root_deltas[worst_root_task]
+                metrics["worst_delta_vs_root"] = worst_root
+                if worst_root < -self.max_cumulative_regression:
+                    reasons.append(
+                        f"cumulative regression vs seed on {worst_root_task}: "
+                        f"{worst_root:+.3f} "
+                        f"(limit -{self.max_cumulative_regression:.3f})"
+                    )
+
+                child_root_zeros = sum(
+                    1 for t in root_common if child_scores[t] <= 1e-9
+                )
+                root_zeros = sum(
+                    1 for t in root_common if root_scores[t] <= 1e-9
+                )
+                metrics["zero_count_vs_root"] = (root_zeros, child_root_zeros)
+                if child_root_zeros > root_zeros + self.max_extra_zeros_vs_root:
+                    reasons.append(
+                        f"cumulative reliability drift: {child_root_zeros} "
+                        f"zero-score task(s) vs {root_zeros} at the seed"
+                    )
+
+        # (6) no efficiency regression
         if child_cost and parent_cost:
             for key in ("tool_calls", "wall_seconds", "output_tokens"):
                 c, p = child_cost.get(key), parent_cost.get(key)

@@ -144,20 +144,30 @@ class Candidate:
     ) -> "Candidate":
         """Return a child with ``edits`` applied.
 
-        An edit whose value is the empty string deletes the file -- deletion is
-        a first-class operation because a curator that can only add is how v1's
-        primer went from 270B to 3159B in three rounds.
+        An edit whose value is the empty string empties the component -- deletion
+        is a first-class operation because a curator that can only add is how a
+        280-byte primer became 3159 bytes in three unmonitored rounds.
+
+        A *declared* component keeps its file when emptied rather than losing it.
+        "This cheatsheet currently has no lessons" is a legitimate state and the
+        obvious way to reach it is to delete the last line; dropping the file
+        instead makes the very next validation fail on a component whose
+        manifest entry points at nothing. Only files no component claims are
+        removed outright.
         """
         new_files = dict(self.files)
+        manifest = manifest or self.manifest
+        declared = {
+            spec.path for spec in manifest.components.values() if spec.path
+        }
         for path, text in edits.items():
-            if text == "":
+            if text == "" and path not in declared:
                 new_files.pop(path, None)
             else:
                 new_files[path] = text
-        new_manifest = manifest or self.manifest
         return Candidate(
             manifest=replace(
-                new_manifest,
+                manifest,
                 parent=self.cid,
                 generation=self.generation + 1,
             ),

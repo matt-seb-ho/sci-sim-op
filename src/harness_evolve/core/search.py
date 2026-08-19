@@ -451,6 +451,8 @@ class Search:
                 parent_cost=parent.cost,
                 child_by_seed=self._by_seed.get(child.cid),
                 parent_by_seed=self._by_seed.get(parent.cid),
+                root_scores=seed_entry.scores,
+                root_by_seed=self._by_seed.get(seed_entry.cid),
             )
             entry = self.archive.add(
                 ArchiveEntry(
