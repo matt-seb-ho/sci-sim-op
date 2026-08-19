@@ -222,13 +222,39 @@ def test_prompt_is_honest_when_there_is_nothing_to_show():
     assert "has not repeated itself" in text
 
 
-def test_missing_api_key_fails_before_the_call():
-    import os
+def test_no_configured_backend_fails_before_the_call(monkeypatch):
+    """And the error names every option, rather than whichever was checked first."""
+    for var in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    with pytest.raises(ProposerError, match="no proposer backend is configured"):
+        LLMProposer().propose(make_candidate())
 
-    saved = os.environ.pop("OPENROUTER_API_KEY", None)
-    try:
-        with pytest.raises(ProposerError, match="is not set"):
-            LLMProposer(config=LLMProposerConfig()).propose(make_candidate())
-    finally:
-        if saved is not None:
-            os.environ["OPENROUTER_API_KEY"] = saved
+
+def test_backend_resolution_follows_what_is_configured(monkeypatch):
+    from harness_evolve.proposers.backends import (
+        AnthropicBackend, OpenRouterBackend, default_backend,
+    )
+
+    for var in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    assert isinstance(default_backend(), AnthropicBackend)
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "y")
+    assert isinstance(default_backend(), OpenRouterBackend)
+
+
+def test_an_explicit_backend_wins_over_resolution(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    class Fake:
+        name = "fake"
+
+        def __call__(self, prompt, *, system=""):
+            assert "EXACTLY ONE EDIT" in system, "the system prompt must reach the model"
+            return response()
+
+    child = LLMProposer(backend=Fake()).propose(make_candidate())
+    assert child.files["m.md"].endswith("- delta handling")

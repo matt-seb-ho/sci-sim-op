@@ -175,10 +175,18 @@ class LLMProposer(Proposer):
     """Proposes one bounded edit per call, with a falsifiable prediction."""
 
     config: LLMProposerConfig = field(default_factory=LLMProposerConfig)
+    #: Transport. Left unset, resolved from whichever provider is configured.
+    backend: Any = None
     #: Constraints already entailed by validator output. Supplying these is the
     #: difference between a model guessing a bound and being handed one.
     derived_constraints: Sequence[Any] = ()
     call: Callable[[str], str] | None = None
+
+    def _backend_caller(self):
+        from harness_evolve.proposers.backends import default_backend
+
+        backend = self.backend or default_backend()
+        return lambda prompt: backend(prompt, system=SYSTEM_PROMPT)
 
     # -- prompt assembly --------------------------------------------------
     def render_components(self, candidate: Candidate) -> str:
@@ -300,7 +308,7 @@ class LLMProposer(Proposer):
         demonstrations: Sequence[Demonstration] = (),
     ) -> Candidate:
         prompt = self.build_prompt(parent, evidence, history, demonstrations)
-        caller = self.call or (lambda p: call_openrouter(p, self.config))
+        caller = self.call or self._backend_caller()
         edit, prediction = self.parse(caller(prompt), parent)
 
         spec = parent.manifest.components[edit.component]
