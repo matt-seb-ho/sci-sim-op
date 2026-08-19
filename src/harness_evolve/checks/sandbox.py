@@ -341,6 +341,15 @@ def _run_vetting_child(plugin_path: Path, test_path: Path) -> int:
             for name in sorted(dir(test_module)):
                 if name.startswith("test_") and callable(getattr(test_module, name)):
                     getattr(test_module, name)()
+    except SystemExit as exc:
+        # A test that exits instead of asserting proves nothing, whatever code
+        # it exits with. Reported separately from a failure because the fix the
+        # proposer needs is different: assert, do not exit.
+        _verdict(
+            STATUS_EXITED_EARLY,
+            f"the sibling test called sys.exit({exc.code!r}) instead of asserting",
+        )
+        return 1
     except BaseException as exc:  # noqa: BLE001 -- test may raise anything
         import traceback
 

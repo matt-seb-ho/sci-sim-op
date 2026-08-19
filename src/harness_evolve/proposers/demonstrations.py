@@ -20,9 +20,20 @@ construction, a record of an expert solving the exact task we score. It is the
 single most concentrated source of ground-truth leakage in the system -- more so
 than trajectories, because it *worked*. An expert's browser history names the
 sibling deck they used as a structural template; their notes name the values
-they looked up. So demonstrations are sanitized on load, through the same gate
-adapters face, and a demonstration that cannot be sanitized is dropped rather
-than trimmed. Nothing here is allowed to reach a proposer unfiltered.
+they looked up.
+
+**One leak surface, not two.** Redaction here is a convenience for making a
+demonstration usable; it is *not* the gate. The authoritative check is
+:mod:`harness_evolve.hygiene`, and :func:`sanitize` runs it as a post-condition
+on its own output: anything the redactor missed is caught by the same rules an
+adapter faces, and the demonstration is dropped rather than passed through.
+
+This structure is deliberate and it is the direct lesson of the incident this
+project exists because of. There, two independent copies of a filename regex --
+one in the reflection loop, one in the durable audit -- shared a blind spot, so
+the artifact that leaked also passed its own audit. A second redactor with its
+own private extension list would reproduce that exactly. Redaction may drift;
+the gate is the thing that must not, so the gate has the final say.
 """
 
 from __future__ import annotations
@@ -74,14 +85,21 @@ def sanitize(
     task_ids: Iterable[str] = (),
     numeric_blocklist: Iterable[str] = (),
     drop_if_task_named: bool = True,
+    corpus: Any = None,
+    gate_config: Any = None,
 ) -> tuple[Demonstration, SanitizationReport]:
-    """Strip answer-shaped content from a demonstration.
+    """Strip answer-shaped content from a demonstration, then gate the result.
 
     What survives is the *strategy*: which documentation areas the expert
     consulted, in what order, what they reported finding hard. What does not
     survive is anything that identifies a specific reference artifact or a
     specific value -- those are the answer, and a proposer that sees them will
     write them into an always-on adapter.
+
+    When ``corpus`` is supplied, the redacted demonstration is then run through
+    :func:`harness_evolve.hygiene.gate.check_texts` and dropped if it blocks.
+    Passing a corpus is strongly recommended and is the only configuration in
+    which this function is a *gate* rather than a best-effort tidy-up.
     """
     report = SanitizationReport(kept=True)
     fields = {
@@ -119,17 +137,41 @@ def sanitize(
             reason=f"names other benchmark task(s): {', '.join(sorted(others)[:3])}",
         )
 
-    return (
-        replace(
-            demo,
-            summary=cleaned["summary"],
-            artifact_excerpt=cleaned["artifact_excerpt"],
-            notes=cleaned["notes"],
-            sources_consulted=tuple(sources),
-            provenance=demo.provenance or "sanitized on load",
-        ),
-        report,
+    clean = replace(
+        demo,
+        summary=cleaned["summary"],
+        artifact_excerpt=cleaned["artifact_excerpt"],
+        notes=cleaned["notes"],
+        sources_consulted=tuple(sources),
+        provenance=demo.provenance or "sanitized on load",
     )
+
+    # The authoritative check. Redaction above is convenience; this is the gate,
+    # and it is the same one adapters face.
+    if corpus is not None:
+        from harness_evolve.hygiene.gate import check_texts
+
+        gated = check_texts(_as_texts(clean), corpus, config=gate_config)
+        if gated.blocked:
+            first = gated.errors[0]
+            return demo, SanitizationReport(
+                kept=False,
+                removed_filenames=report.removed_filenames,
+                removed_numerics=report.removed_numerics,
+                reason=f"failed the hygiene gate after redaction: {first.render()}",
+            )
+
+    return clean, report
+
+
+def _as_texts(demo: Demonstration) -> dict[str, str]:
+    """Demonstration fields as a path->text map, the shape the gate expects."""
+    return {
+        f"demo:{demo.task}/summary": demo.summary,
+        f"demo:{demo.task}/artifact": demo.artifact_excerpt,
+        f"demo:{demo.task}/notes": demo.notes,
+        f"demo:{demo.task}/sources": "\n".join(demo.sources_consulted),
+    }
 
 
 def _names(task: str, fields: dict[str, str], sources: Sequence[str]) -> bool:
@@ -168,6 +210,8 @@ def load_jsonl(
     *,
     task_ids: Iterable[str] = (),
     numeric_blocklist: Iterable[str] = (),
+    corpus: Any = None,
+    gate_config: Any = None,
 ) -> tuple[list[Demonstration], list[SanitizationReport]]:
     """Load demonstrations from a JSONL file, sanitizing each.
 
@@ -194,7 +238,11 @@ def load_jsonl(
             provenance=str(d.get("provenance", "")),
         )
         clean, rep = sanitize(
-            demo, task_ids=task_ids, numeric_blocklist=numeric_blocklist
+            demo,
+            task_ids=task_ids,
+            numeric_blocklist=numeric_blocklist,
+            corpus=corpus,
+            gate_config=gate_config,
         )
         reports.append(rep)
         if rep.kept:

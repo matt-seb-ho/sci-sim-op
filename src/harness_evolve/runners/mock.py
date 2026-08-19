@@ -23,11 +23,16 @@ What it models, and why each piece is here rather than being a constant:
   the rate is a knob and the stop policy moves it.
 
 Scoring is delegated to the :class:`~harness_evolve.simulators.base.
-SimulatorSpec`, never faked here. The runner controls *what the agent wrote*
--- a deck missing sections, a deck with hallucinated extras, an empty workspace
--- and the simulator scores it under its own rules. A zero termination is
-therefore an empty or unparseable workspace, and it comes back as 0.0 because
-the failures-as-zero convention says so, not because this module hardcoded it.
+SimulatorSpec`, never faked here. The artifact *format* is a separate seam
+(:class:`DeckAuthor`), because a runner writing a format the paired simulator
+cannot parse would score every rollout 0 while looking like it worked.
+:func:`author_for` picks a matching author rather than assuming one.
+
+The runner controls *what the agent wrote* -- a deck missing sections, a deck
+with hallucinated extras, an empty workspace -- and the simulator scores it
+under its own rules. A zero termination is therefore an empty or unparseable
+workspace, and it comes back as 0.0 because the failures-as-zero convention
+says so, not because this module hardcoded it.
 That keeps the mock honest about the one thing v1 got wrong: the reward channel.
 """
 
@@ -36,10 +41,11 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from harness_evolve.core.candidate import estimate_tokens
 from harness_evolve.runners.base import RolloutRunner, RunnerCapabilities
@@ -180,6 +186,180 @@ class MockOutcome:
         }
 
 
+# ---------------------------------------------------------------------------
+# artifact authoring
+# ---------------------------------------------------------------------------
+
+
+class DeckAuthor(ABC):
+    """Writes the files a synthetic rollout leaves in a workspace.
+
+    Separated from the runner because the *format* belongs to the simulator and
+    the *outcome* belongs to the world model. Pairing a runner that writes XML
+    with a simulator that parses something else would score every rollout 0 --
+    a broken reward channel of exactly the kind this package exists to make
+    impossible -- so the seam is explicit and :func:`author_for` picks a
+    matching author rather than assuming one.
+    """
+
+    @abstractmethod
+    def reference(self, task: TaskId) -> dict[str, str]:
+        """The complete, correct artifact for ``task``: filename -> text."""
+
+    @abstractmethod
+    def generated(self, task: TaskId, outcome: "MockOutcome") -> dict[str, str]:
+        """What the agent produced, degraded to ``outcome.quality``."""
+
+    @abstractmethod
+    def unparseable(self, task: TaskId) -> dict[str, str]:
+        """A workspace that exists but cannot be parsed: the other zero mode."""
+
+
+class XmlDeckAuthor(DeckAuthor):
+    """GEOS-shaped XML decks. The default, and what the built-in checks read.
+
+    Degradations are the measured failure categories, not noise:
+    ``missing_block`` (sections dropped), ``hallucinated_extras`` (spurious
+    Constitutive children, suppressed when the adapter declares negative
+    constraints), and the lazily-resolved dangling reference that
+    ``geosx --validate-input`` exits 0 on.
+    """
+
+    def __init__(self, sections: Sequence[str]) -> None:
+        self.sections = tuple(sections)
+
+    def reference(self, task: TaskId) -> dict[str, str]:
+        body = "\n".join(self._section_xml(task, s) for s in self.sections)
+        return {"reference.xml": f"<Problem>\n{body}\n</Problem>\n"}
+
+    def generated(self, task: TaskId, outcome: "MockOutcome") -> dict[str, str]:
+        keep = max(1, round(outcome.quality * len(self.sections)))
+        parts: list[str] = []
+        for section in self.sections[:keep]:
+            xml = self._section_xml(task, section)
+            if section == "Solvers" and outcome.quality < 0.9:
+                xml = xml.replace(f'disc_{task}"', f'disc_{task}_MISSING"')
+            if section == "Constitutive" and outcome.n_extras:
+                extras = "\n".join(
+                    f'    <NullModel name="extra_{i}"/>' for i in range(outcome.n_extras)
+                )
+                xml = xml.replace("  </Constitutive>", f"{extras}\n  </Constitutive>")
+            parts.append(xml)
+        return {"deck.xml": "<Problem>\n" + "\n".join(parts) + "\n</Problem>\n"}
+
+    def unparseable(self, task: TaskId) -> dict[str, str]:
+        return {"deck.xml": '<Problem>\n  <Solvers>\n    <SinglePhaseFVM name="flow"\n'}
+
+    def _section_xml(self, task: TaskId, section: str) -> str:
+        """One section, carrying the cross-references a real deck carries."""
+        if section == "Solvers":
+            return (
+                "  <Solvers>\n"
+                f'    <SinglePhaseFVM name="flow_{task}" discretization="disc_{task}" '
+                f'targetRegions="{{ region_{task} }}"/>\n'
+                "  </Solvers>"
+            )
+        if section == "NumericalMethods":
+            return (
+                "  <NumericalMethods>\n    <FiniteVolume>\n"
+                f'      <TwoPointFluxApproximation name="disc_{task}"/>\n'
+                "    </FiniteVolume>\n  </NumericalMethods>"
+            )
+        if section == "ElementRegions":
+            return (
+                "  <ElementRegions>\n"
+                f'    <CellElementRegion name="region_{task}" materialList="{{ mat_{task} }}"/>\n'
+                "  </ElementRegions>"
+            )
+        if section == "Constitutive":
+            return (
+                "  <Constitutive>\n"
+                f'    <CompressibleSinglePhaseFluid name="mat_{task}" defaultDensity="1000"/>\n'
+                "  </Constitutive>"
+            )
+        return f'  <{section} name="{section.lower()}_{task}"/>'
+
+
+class SectionKeyDeckAuthor(DeckAuthor):
+    """``[Section]`` / ``key = value`` decks, for the synthetic simulator plugin.
+
+    Reference text comes from a callable rather than from reaching into the
+    simulator, so this works for any simulator using that deck shape.
+    """
+
+    def __init__(
+        self,
+        reference_text: Callable[[TaskId], str],
+        *,
+        suffix: str = ".mock",
+    ) -> None:
+        self._reference_text = reference_text
+        self.suffix = suffix
+
+    def reference(self, task: TaskId) -> dict[str, str]:
+        return {f"{task}{self.suffix}": self._reference_text(task)}
+
+    def generated(self, task: TaskId, outcome: "MockOutcome") -> dict[str, str]:
+        sections = self._parse(self._reference_text(task))
+        names = list(sections)
+        keep = max(1, round(outcome.quality * len(names)))
+        # Wrong *values*, not just missing blocks. Which component binds is
+        # interface-dependent -- structural completeness on GEOS and OpenFOAM,
+        # parameter values on LAMMPS -- so a mock that can only lose whole
+        # sections cannot express the second regime. Corruption is spread over
+        # the flattened key list rather than per section, because per-section
+        # rounding quantises the reward so coarsely that a small adapter
+        # improvement moves nothing and the search sees no gradient.
+        flat = [(n, k) for n in names[:keep] for k in sections[n]]
+        n_right = round(outcome.quality * len(flat))
+        wrong_keys = {pair for pair in flat[n_right:]}
+        lines: list[str] = []
+        for name in names[:keep]:
+            lines.append(f"[{name}]")
+            for key, value in sections[name].items():
+                lines.append(f"{key} = {'0' if (name, key) in wrong_keys else value}")
+        for i in range(outcome.n_extras):
+            lines.append(f"[Hallucinated{i}]")
+            lines.append("p0 = 1")
+        return {f"{task}{self.suffix}": "\n".join(lines) + "\n"}
+
+    def unparseable(self, task: TaskId) -> dict[str, str]:
+        return {f"{task}{self.suffix}": "this line has no section and no equals sign\n"}
+
+    @staticmethod
+    def _parse(text: str) -> dict[str, dict[str, str]]:
+        out: dict[str, dict[str, str]] = {}
+        current: dict[str, str] | None = None
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                current = out.setdefault(line[1:-1].strip(), {})
+            elif current is not None and "=" in line:
+                key, _, value = line.partition("=")
+                current[key.strip()] = value.strip()
+        return out
+
+
+def author_for(spec: "SimulatorSpec", sections: Sequence[str]) -> DeckAuthor:
+    """Pick an author whose output ``spec`` can actually parse.
+
+    The synthetic simulator plugin ships its own deck format; handing it XML
+    would score every rollout 0 while looking like it worked. The import is
+    guarded so this module keeps working when that plugin is absent.
+    """
+    try:
+        from harness_evolve.simulators.mock import DECK_SUFFIX, MockSimulator
+    except Exception:  # noqa: BLE001 -- optional peer module
+        return XmlDeckAuthor(sections)
+    if isinstance(spec, MockSimulator):
+        return SectionKeyDeckAuthor(
+            lambda task: spec.task_for(task).deck_text(), suffix=DECK_SUFFIX
+        )
+    return XmlDeckAuthor(sections)
+
+
 class MockRunner(RolloutRunner):
     """Deterministic runner over a synthetic world. No network, no Docker, $0."""
 
@@ -190,6 +370,7 @@ class MockRunner(RolloutRunner):
         world: MockWorld | None = None,
         root: Path | None = None,
         sections: Sequence[str] | None = None,
+        deck_author: DeckAuthor | None = None,
     ) -> None:
         """
         Args:
@@ -202,7 +383,9 @@ class MockRunner(RolloutRunner):
                 compare equal field for field.
             sections: override the deck's section list. Defaults to the
                 simulator's ``required_sections``, falling back to
-                :data:`DEFAULT_SECTIONS`.
+                :data:`DEFAULT_SECTIONS`. Only the XML author reads it.
+            deck_author: how synthetic artifacts are written. Defaults to
+                :func:`author_for`, which picks a format the simulator parses.
         """
         self.spec = spec
         self.world = world or MockWorld()
@@ -210,6 +393,7 @@ class MockRunner(RolloutRunner):
         self.sections: tuple[str, ...] = tuple(
             sections or getattr(spec, "required_sections", ()) or DEFAULT_SECTIONS
         )
+        self.deck_author: DeckAuthor = deck_author or author_for(spec, self.sections)
 
     @property
     def capabilities(self) -> RunnerCapabilities:
@@ -363,47 +547,14 @@ class MockRunner(RolloutRunner):
         return self.root / "runs" / cid / task / f"seed{seed}"
 
     def _write_ground_truth(self, task: TaskId) -> Path:
-        """The reference deck. Written once per task; identical across runs."""
+        """The reference artifact. Written once per task; identical across runs."""
         gt = self.root / "ground_truth" / task
         gt.mkdir(parents=True, exist_ok=True)
-        target = gt / "reference.xml"
-        if not target.exists():
-            target.write_text(self._reference_deck(task))
+        for name, text in self.deck_author.reference(task).items():
+            target = gt / name
+            if not target.exists():
+                target.write_text(text)
         return gt
-
-    def _reference_deck(self, task: TaskId) -> str:
-        """A complete, self-consistent deck for ``task``."""
-        body = "\n".join(self._section_xml(task, s) for s in self.sections)
-        return f"<Problem>\n{body}\n</Problem>\n"
-
-    def _section_xml(self, task: TaskId, section: str) -> str:
-        """One section, with the cross-references a real deck carries."""
-        if section == "Solvers":
-            return (
-                "  <Solvers>\n"
-                f'    <SinglePhaseFVM name="flow_{task}" discretization="disc_{task}" '
-                f'targetRegions="{{ region_{task} }}"/>\n'
-                "  </Solvers>"
-            )
-        if section == "NumericalMethods":
-            return (
-                "  <NumericalMethods>\n    <FiniteVolume>\n"
-                f'      <TwoPointFluxApproximation name="disc_{task}"/>\n'
-                "    </FiniteVolume>\n  </NumericalMethods>"
-            )
-        if section == "ElementRegions":
-            return (
-                "  <ElementRegions>\n"
-                f'    <CellElementRegion name="region_{task}" materialList="{{ mat_{task} }}"/>\n'
-                "  </ElementRegions>"
-            )
-        if section == "Constitutive":
-            return (
-                "  <Constitutive>\n"
-                f'    <CompressibleSinglePhaseFluid name="mat_{task}" defaultDensity="1000"/>\n'
-                "  </Constitutive>"
-            )
-        return f'  <{section} name="{section.lower()}_{task}"/>'
 
     def _write_generated(self, inputs_dir: Path, task: TaskId, outcome: MockOutcome) -> None:
         """Write what the agent 'produced'.
@@ -412,37 +563,16 @@ class MockRunner(RolloutRunner):
         the failures-as-zero convention is about. Nothing here writes a score.
         """
         if outcome.is_zero:
-            if outcome.zero_reason == "empty_workspace":
-                return
-            (inputs_dir / "deck.xml").write_text(
-                "<Problem>\n  <Solvers>\n    <SinglePhaseFVM name=\"flow\"\n"
+            files = (
+                {} if outcome.zero_reason == "empty_workspace"
+                else self.deck_author.unparseable(task)
             )
-            return
-        (inputs_dir / "deck.xml").write_text(self._generated_deck(task, outcome))
-
-    def _generated_deck(self, task: TaskId, outcome: MockOutcome) -> str:
-        """A quality-degraded copy of the reference deck.
-
-        Degradations are the measured failure categories, not noise:
-        ``missing_block`` (sections dropped), ``hallucinated_extras`` (spurious
-        Constitutive children, suppressed when the adapter declares negative
-        constraints), and the lazily-resolved dangling reference that
-        ``geosx --validate-input`` exits 0 on.
-        """
-        keep = max(1, round(outcome.quality * len(self.sections)))
-        kept = self.sections[:keep]
-        parts: list[str] = []
-        for section in kept:
-            xml = self._section_xml(task, section)
-            if section == "Solvers" and outcome.quality < 0.9:
-                xml = xml.replace(f'disc_{task}"', f'disc_{task}_MISSING"')
-            if section == "Constitutive" and outcome.n_extras:
-                extras = "\n".join(
-                    f'    <NullModel name="extra_{i}"/>' for i in range(outcome.n_extras)
-                )
-                xml = xml.replace("  </Constitutive>", f"{extras}\n  </Constitutive>")
-            parts.append(xml)
-        return "<Problem>\n" + "\n".join(parts) + "\n</Problem>\n"
+        else:
+            files = self.deck_author.generated(task, outcome)
+        for name, text in files.items():
+            target = inputs_dir / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
 
     # -- synthetic telemetry ---------------------------------------------
     def _events_jsonl(

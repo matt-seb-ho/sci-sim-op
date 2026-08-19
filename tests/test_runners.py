@@ -685,3 +685,54 @@ def test_preflight_reports_an_unreachable_daemon(tmp_path: Path) -> None:
         command_runner=lambda argv, env, timeout, cwd: CommandResult(1, stderr="no daemon"),
     )
     assert any("daemon not reachable" in r for r in runner.preflight())
+
+
+# ===========================================================================
+# the deck-author seam
+# ===========================================================================
+
+
+def test_mock_runner_writes_a_format_the_paired_simulator_can_parse(tmp_path: Path) -> None:
+    # The obvious pairing is MockRunner + the synthetic simulator plugin, and
+    # if the runner wrote a format that plugin could not parse, every rollout
+    # would score 0 while looking like it worked -- a broken reward channel of
+    # exactly the kind this package exists to make impossible.
+    mock_sim = pytest.importorskip("harness_evolve.simulators.mock")
+    runner = MockRunner(
+        mock_sim.MockSimulator(), root=tmp_path, world=MockWorld(zero_rate=0.0)
+    )
+    plain = make_candidate("just write something")
+    helpful = make_candidate(
+        "name every required section: Grid Schedule Materials Boundaries Outputs "
+        "Solvers Regions, and check the materialList"
+    )
+    tasks = [f"t{i}" for i in range(8)]
+
+    plain_scores = [runner.run(plain, t, 1).score for t in tasks]
+    helpful_scores = [runner.run(helpful, t, 1).score for t in tasks]
+
+    assert all(s.status == "success" for s in plain_scores + helpful_scores)
+    assert all(s.value > 0.0 for s in plain_scores)
+    mean = lambda xs: sum(s.value for s in xs) / len(xs)  # noqa: E731
+    assert mean(helpful_scores) > mean(plain_scores)
+
+
+def test_deck_author_is_an_overridable_seam(tmp_path: Path) -> None:
+    from harness_evolve.runners.mock import DeckAuthor
+
+    class Custom(DeckAuthor):
+        def reference(self, task):
+            return {"gt.txt": "reference"}
+
+        def generated(self, task, outcome):
+            return {"out.txt": f"quality={outcome.quality:.2f}"}
+
+        def unparseable(self, task):
+            return {"out.txt": "\x00"}
+
+    runner = MockRunner(FakeSpec(), root=tmp_path, deck_author=Custom())
+    rollout = runner.run(make_candidate(), "t1", 1)
+    assert (Path(rollout.artifacts_dir) / "inputs" / "out.txt").read_text().startswith(
+        "quality="
+    )
+    assert (tmp_path / "ground_truth" / "t1" / "gt.txt").is_file()

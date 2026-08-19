@@ -233,3 +233,113 @@ been silently disabled at its most aggressive setting. Fixed to
    variance to tune.
 3. Anchor slice still hand-picked pending W7's read on Janus's
    coverage/boundary/fresh construction.
+
+---
+
+## 2026-08-19 — session 1, revision 2: the sweep, and a contribution worth claiming
+
+W7's verified sweep landed: **61 arXiv IDs fetched and abstract-checked, zero
+failures to resolve, zero mismatches** (`docs/LITERATURE_2026-08.md`, 60-row
+table). It changed the shortlist again, found published counterparts for two of
+our local negative results, and — most usefully — identified a gap nobody has
+filled that we are unusually well placed to.
+
+### Shortlist, revision 2
+
+| Slot | Was (rev 1) | Now | Why |
+|---|---|---|---|
+| memory artifact | AutoMem 2607.01224 | **SkillOpt 2605.23904** | optimizes exactly our object — one skill document as the external state of a *frozen* agent — via bounded add/delete/replace accepted only on strict held-out improvement, with **zero inference-time model calls**, and was evaluated **inside Claude Code**, which is our harness. 2608.09629 finds it beats open-ended delegation when the optimizer is only medium-strength, i.e. our cheap-proposer regime. AutoMem's structure loop stays as a secondary reference. |
+| budget enforcement | (token cap) | **SkillZip 2608.11079** | an MDL objective with a **hard coverage constraint per obligation**, so rare negative constraints provably survive compression — and it is **evaluation-free**, one extraction call, no rollouts. The only kind of budget mechanism affordable at ~$0.07/task-run. |
+| acceptance | Self-Harness / Janus | **+ RLMOpt 2608.10471 no-regression floor**, **+ SEA 2607.00871 anytime-valid gate** | RLMOpt returns the *seed* rather than accept a noisy lower-scoring candidate (GEPA fell below its seed in 2 of 11 matched runs — unaffordable at n=2–3). SEA admits each edit through an anytime-valid gate emitting an auditable certificate against a fixed error budget, i.e. you may peek after every seed, which is what a 2–3 seed budget actually needs. |
+| contamination | our gate | **+ VaG 2608.05810** | skill contamination is **structurally irreversible** — post-hoc rollback recovers little — so admission must be pre-commit, and three heterogeneous critics (structural / behavioural / semantic) are non-substitutable. Our free-gates-before-paid-gates ordering already matches; the irreversibility result is why it must stay that way. |
+| retirement signal | — | **2607.07436 as a constraint** | a false-pass-biased judge does not merely add noise; past a threshold it **switches contribution-based retirement off entirely**, invisibly in aggregate metrics. Only verifier-like graders are spared. Direct argument for the simulator, never an LLM judge, as the retirement signal. |
+
+**Mandatory evaluation tier gains two:** 2608.18066 (multiple runs *and shuffled
+task order* — default orderings are a hidden curriculum, which directly indicts
+v1's per-round task slices) and 2608.02636 (only 55/388 candidates produced a
+byte-distinct validation best; runs the compute-matched controls we require).
+
+### Two of our local negative results are now published phenomena
+
+- 2608.14036 measures retrieval **actual-use precision collapsing 29.6% → 3.3%**
+  as the pool grows 5 → 100. That is our zero-call `memory_lookup` result with a
+  mechanism attached.
+- 2608.11095 documents **+226% lifetime growth of agentic instruction files**
+  with a formal reason deletion never happens — our 12× monotone primer growth —
+  and a cheap fix (rationale comments) that removed 99.3% of excess instructions.
+  Worth adopting directly: every derived constraint already carries provenance.
+
+### The bad news, pre-registered as a kill criterion
+
+**RLMOpt and MAGE (2607.11944) jointly predict our search returns its seed.**
+MAGE finds that at N_train=30 a well-designed fixed prompt beat *every*
+reflective optimizer ("scaffold choice dominates optimizer choice"), and that
+its variance-amplification effect is **headroom-dependent** — at high base
+accuracy you get the variance without the gain. We are at N=17 with a
+hand-designed seed at 0.86–0.92.
+
+Recorded as a pre-registered kill criterion rather than discovered later: **if
+the search returns its seed under the no-regression floor, that is the predicted
+outcome, it is a publishable null given 2607.12227, and we stop rather than
+loosening the gate until something passes.**
+
+Also flagged: 2608.02639 (Instruction Stacking Collapse) measures
+instruction-following degrading non-linearly from ~96% to as low as 20% as
+verifier-checked instructions stack 1→20, driven by pairwise conflicts. Our
+primer + cheatsheet + negative constraints **is** a stacked-instruction prompt.
+This is a real cost on every constraint we add and it is capability-graded, so
+it interacts with the cross-model panel. The token budget was already a gate;
+this says the count matters independently of the tokens.
+
+### Prior art we did not know about
+
+- **MOOSEnger 2608.15881** — a harness for the MOOSE multiphysics framework that
+  validates and diagnoses input **through the simulation executable** and
+  extracts lessons into persistent memory. 90% vs 5% for the bare model. The
+  closest published system to our GEOS setting; a baseline, not a competitor.
+- **PACE-Bench 2608.14441** — 144 simulator-grounded adaptation pairs across six
+  physics domains, ten self-evolving methods compared. Headline finding:
+  simulator-grounded reflection is more reliable than unverified self-revision,
+  **while memory anchors agents to early designs**. An external benchmark whose
+  thesis is ours, and a plausible transfer target for subgoal (1).
+- **JutulGPT 2603.00214** — nearest neighbour to our problem, and it names a
+  threat we inherit: choices resolved tacitly through *simulator defaults* are
+  invisible to the assumption log.
+
+### The gap, and what I built for it
+
+Every verifier-grounded method the sweep found — DarwinX, VaG, SkillRevise,
+TTHE, 2607.17352 — consumes a **pass/fail** verifier. That is all most verifiers
+offer.
+
+`geosx --validate-input` offers more. On an unknown attribute it prints the
+**full table of valid attributes**; on a hallucinated tag, the ~50 legal solver
+types; on a dangling reference, the set of names actually defined. It does not
+report that the deck is wrong — **it names the correct action space at the point
+of failure.**
+
+Nobody has an evolution loop whose evidence channel carries that. The
+consequence is concrete: a negative constraint can be **derived** from what the
+simulator already said, rather than proposed by a model and then paid for with a
+full evaluation round. Built today as `evidence/directives.py` (17 tests):
+
+- parses the three observed GEOS directive shapes into
+  `(offender, legal alternatives, context)`;
+- distinguishes **near-misses from misconceptions** by edit distance, because a
+  typo wants a correction and a misconception wants the legal set enumerated;
+- derives constraints only at `min_support >= 2` — one slip is one agent's slip,
+  and encoding one-offs is the over-specification failure again;
+- emits each as **prose for the cheatsheet and a machine entry for the hook**,
+  from one source, with provenance attached.
+
+Two properties worth stating plainly. It costs **zero rollouts** to discover a
+constraint this way — only to confirm one, which matters when a rollout is 25
+minutes. And it carries **no contamination risk of the usual kind**: the
+constraint comes from the checker's own schema, not from a ground-truth deck.
+The agent could have obtained it by asking the validator. Constraints mined from
+ground truth would be leakage; constraints mined from the interface contract are
+what an adapter is *for*.
+
+This displaces EFC-as-objective as the headline contribution. EFC stays as a
+search signal (W3 built it, with its gaming holes documented), but it is a proxy
+we would have to defend, and this is a mechanism we can demonstrate.

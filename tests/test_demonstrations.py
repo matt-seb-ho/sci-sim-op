@@ -111,3 +111,54 @@ def test_render_respects_a_budget():
 
 def test_empty_set_renders_honestly():
     assert "no expert demonstrations" in render_all([])
+
+
+# ---------------------------------------------------------------------------
+# the gate has the final say
+# ---------------------------------------------------------------------------
+
+def test_hygiene_gate_overrides_the_redactor():
+    """Anything redaction misses must still be caught, by the same rules
+    adapters face.
+
+    The incident this project exists because of was two independent copies of a
+    filename regex sharing a blind spot: the artifact that leaked also passed
+    its own audit. A private redactor list here would reproduce it exactly.
+    """
+    from harness_evolve.hygiene.corpus import GroundTruthCorpus
+
+    # A ground-truth value the demonstration-local redactor is not told about,
+    # so only the shared corpus can catch it.
+    corpus = GroundTruthCorpus(numeric_literals={
+        "1e-12", "0.375", "66.667", "0.001", "2.75e-08", "4.4e-10", "0.284",
+        "1.85e+09",
+    })
+    demo = Demonstration(
+        task="ExampleMandel",
+        summary="set permeability 1e-12, porosity 0.375, modulus 66.667, "
+                "viscosity 0.001, 2.75e-08, 4.4e-10, 0.284 and 1.85e+09",
+    )
+
+    ungated, rep = sanitize(demo, task_ids=TASKS)
+    assert rep.kept, "redactor alone lets ground-truth values through"
+    assert "1e-12" in ungated.summary
+
+    _, gated_rep = sanitize(demo, task_ids=TASKS, corpus=corpus)
+    assert not gated_rep.kept
+    assert "hygiene gate" in gated_rep.reason
+
+
+def test_clean_demonstration_still_passes_the_gate():
+    """The gate must not make demonstrations unusable."""
+    from harness_evolve.hygiene.corpus import GroundTruthCorpus
+
+    corpus = GroundTruthCorpus(numeric_literals={"1e-12"}, task_ids=set(TASKS))
+    demo = Demonstration(
+        task="ExampleMandel",
+        summary="worked from the narrative documentation for events and outputs "
+                "rather than from example files",
+        notes="reported the events setup as the hardest part",
+    )
+    clean, rep = sanitize(demo, task_ids=TASKS, corpus=corpus)
+    assert rep.kept
+    assert "narrative documentation" in clean.summary
