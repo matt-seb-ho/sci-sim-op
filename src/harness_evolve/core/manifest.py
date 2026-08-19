@@ -41,13 +41,46 @@ FEEDBACK_SHAPES: frozenset[str] = frozenset(
     {"minimal", "structured_errors", "errors_plus_tables"}
 )
 
-#: Checks the stop policy may enable. Names resolve against the check registry
-#: (built-ins in ``hooks/checks/`` plus any candidate-authored plugins).
-KNOWN_CHECKS: frozenset[str] = frozenset(
+#: Last-resort check names, used only when the check registry cannot be
+#: imported. Never treat this as the universe of checks: hardcoding that list
+#: here silently truncates the search space to whatever was known when this
+#: module was written, and a stop policy naming a perfectly good check would be
+#: rejected as invalid. Resolution goes through :func:`resolve_known_checks`.
+_FALLBACK_CHECKS: frozenset[str] = frozenset(
     {"parse", "geosx_validate", "required_sections", "constraints"}
 )
 
+
+def resolve_known_checks(
+    explicit: frozenset[str] | None = None, plugins: Any = None
+) -> frozenset[str]:
+    """The set of check names a stop policy may name.
+
+    Resolved from the live check registry rather than a constant, so adding a
+    built-in or vetting a candidate-authored plugin widens the search space
+    automatically. The alternative -- a hardcoded list -- fails in the worst
+    available way: the manifest rejects a stop policy naming a real check, so
+    the loop looks like it is searching over checks while quietly refusing most
+    of them.
+
+    The import is lazy and tolerated to fail so ``core`` stays usable on its own.
+    """
+    if explicit is not None:
+        return explicit
+    try:
+        from harness_evolve.checks.api import known_check_names
+    except Exception:
+        return _FALLBACK_CHECKS
+    try:
+        return frozenset(known_check_names(plugins))
+    except Exception:
+        return _FALLBACK_CHECKS
+
 DEFAULT_MANIFEST_NAME = "manifest.toml"
+
+#: Deprecated alias. Prefer :func:`resolve_known_checks`, which reflects the
+#: live registry instead of a snapshot of it.
+KNOWN_CHECKS = _FALLBACK_CHECKS
 
 
 class ManifestError(ValueError):
@@ -106,7 +139,8 @@ class StopPolicy:
     feedback_shape: str = "structured_errors"
     checks: tuple[str, ...] = ("parse", "geosx_validate")
 
-    def validate(self, known_checks: frozenset[str] = KNOWN_CHECKS) -> None:
+    def validate(self, known_checks: frozenset[str] | None = None) -> None:
+        known_checks = resolve_known_checks(known_checks)
         if not 0 <= self.retries <= 6:
             raise ManifestError(f"stop_policy.retries out of range [0,6]: {self.retries}")
         if self.feedback_shape not in FEEDBACK_SHAPES:
@@ -203,7 +237,7 @@ class Manifest:
         return cls.from_toml(Path(path).read_text())
 
     # -- validation ------------------------------------------------------
-    def validate(self, known_checks: frozenset[str] = KNOWN_CHECKS) -> None:
+    def validate(self, known_checks: frozenset[str] | None = None) -> None:
         if not self.components:
             raise ManifestError("manifest declares no components")
         seen_paths: dict[str, str] = {}

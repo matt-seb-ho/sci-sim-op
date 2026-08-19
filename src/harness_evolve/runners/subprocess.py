@@ -32,7 +32,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
@@ -404,8 +404,6 @@ class SubprocessRunner(RolloutRunner):
 
 def _annotate(score: Score, extra: Mapping[str, Any]) -> Score:
     """Attach process provenance without touching the value or the status."""
-    from dataclasses import replace
-
     return replace(score, detail={**dict(score.detail), **dict(extra)})
 
 

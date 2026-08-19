@@ -16,15 +16,11 @@ validator that is belongs to the simulator plugin, not to the check registry.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
 
 from harness_evolve.checks.api import CheckContext, CheckFn
 from harness_evolve.checks.xmlview import ElementView
 from harness_evolve.simulators.base import Artifact
 from harness_evolve.types import Finding
-
-if TYPE_CHECKING:  # pragma: no cover
-    pass
 
 #: Separators GEOS accepts inside list-valued attributes such as ``materialList``.
 _LIST_SPLIT_RE = re.compile(r"[\s,{}]+")
