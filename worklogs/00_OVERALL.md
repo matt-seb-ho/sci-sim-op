@@ -576,3 +576,76 @@ BLOCKER: UNVERIFIED: the runner must forward GEOS_EVOLVE_FEEDBACK_SHAPE and
 ```
 
 That last line is the one this whole project exists because of.
+
+---
+
+## 2026-08-19 — session 1, pass 5: the protocol, dry-run end to end
+
+`scripts/experiment_protocol_dryrun.py` runs search → compute-matched baselines
+→ slice discipline → paired and tail statistics → budget ledger → verdict, on
+the mock. Full write-up in `docs/EXPERIMENT_02_protocol_dryrun.md`; the rendered
+document is committed at `docs/protocol_dryrun_report.md`.
+
+### It refused a run that looks like a win
+
+Naive reading of the same numbers: mean paired delta **+0.1251**, **3W / 0L /
+1T**, beat best-of-k under both selectors.
+
+Verdict: **`fails`**, for four independently sufficient reasons —
+
+- one task was newly pushed **below the catastrophic threshold**, so the control
+  clause fails despite the mean rising;
+- **no baseline was actually budget-matched**, so the central question is
+  untested;
+- the design was **underpowered by construction**: minimum achievable p = 0.250
+  against α = 0.05, which the report states rather than letting p = 0.25 read as
+  weak evidence of no effect;
+- the **mechanism moved the wrong way** — zero rate up 0.083, one rescue against
+  one loss.
+
+That is the write-up the predecessor produced. Having the machinery refuse it on
+a synthetic run, before any budget is attached, is the point of building it.
+
+### A planning constraint we did not know about
+
+Budget matching failed structurally, not incidentally. The search spent 126
+rollouts on a 6-task anchor; matching that against a **4-task** held-out slice at
+3 seeds needs `k = ceil(126/12) = 11`, costing **2.10×** the search, while the
+control spends **0.19×**. Neither is inside tolerance, so neither can carry the
+verdict.
+
+**A held-out slice much smaller than the search slice cannot host a
+budget-matched parallel baseline.** The arms are matchable only when
+
+```
+search_rollouts  ≈  |held_out| × n_seeds × k     for small integer k
+```
+
+For the real experiment: 10 held-out tasks × 5 seeds and a ~150-rollout search
+gives k=3 and lands close to matched; a ~500-rollout search would need k=10 and
+overshoot. **The search budget and the held-out slice have to be planned
+together.** This is not obvious and is exactly the kind of thing discovered too
+late.
+
+### An arm that could not be constructed
+
+Sequential refinement runs through the harness's own stop policy, because that
+*is* this system's refinement mechanism. At k=11 it exceeds the retry cap, and
+matching it would mean changing the harness — unfreezing the thing the claim
+holds fixed. Reported as **missing, with the reason**, rather than dropped:
+"we could not construct a comparable sequential baseline at this budget" is a
+finding about the comparison, not a detail of it.
+
+### Also confirmed working
+
+Slice discipline held with a timestamped audit trail (anchor→selection,
+probe→evidence, held-out released once to one named candidate). Small-n guard
+rails fired — the bootstrap refused an interval at n=4 rather than producing a
+confident-looking one. Both best-of-k selectors reported, since the oracle alone
+flatters the baseline and the validator alone flatters us. Every arm labelled by
+model × harness configuration rather than by a system name.
+
+### Running total
+
+404 tests, 16 commits. Two experiments, both $0, both producing findings rather
+than just exercising code.

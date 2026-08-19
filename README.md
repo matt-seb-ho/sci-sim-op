@@ -22,6 +22,7 @@ python3 scripts/evolve.py preflight   # what would make a real run meaningless
 | what the literature actually says as of Aug 2026 (60 verified papers) | [`docs/LITERATURE_2026-08.md`](docs/LITERATURE_2026-08.md) |
 | what must change elsewhere before a real run means anything | [`docs/INTEGRATION_REQUIREMENTS.md`](docs/INTEGRATION_REQUIREMENTS.md) |
 | the first result, and why its two views disagree | [`docs/EXPERIMENT_01_proposer_control.md`](docs/EXPERIMENT_01_proposer_control.md) |
+| what the evaluation protocol refuses, and why | [`docs/EXPERIMENT_02_protocol_dryrun.md`](docs/EXPERIMENT_02_protocol_dryrun.md) |
 | how any of this was decided | [`worklogs/`](worklogs/) |
 
 ## The five facts that determine the design
