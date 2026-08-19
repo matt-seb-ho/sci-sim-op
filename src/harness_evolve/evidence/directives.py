@@ -369,3 +369,64 @@ def _edit_distance(a: str, b: str) -> int:
             cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
         prev = cur
     return prev[-1]
+
+
+@dataclass
+class ConstraintLedger:
+    """Accumulates repair directives across rounds and derives constraints.
+
+    Support has to accumulate *across* rounds, not within one. A validator
+    complaint seen once in a round is one agent's slip; the same complaint in
+    three different rounds, on different candidates, is a property of how this
+    model reads this interface -- which is exactly the thing an always-on
+    adapter should carry and the thing a per-round view cannot see.
+
+    The ledger is also the cheapest artifact in the system. Directives arrive as
+    a by-product of rollouts already paid for, so the marginal cost of a
+    constraint discovered this way is zero. That matters when the alternative is
+    a proposer guessing a bound and a full evaluation round finding out whether
+    it holds.
+    """
+
+    directives: list[RepairDirective] = field(default_factory=list)
+    rounds_observed: int = 0
+    #: Support required before a directive becomes a constraint. Counted over
+    #: distinct observations, so a single agent repeating itself within one
+    #: round does not by itself promote a one-off into a rule.
+    min_support: int = 2
+
+    def observe(self, events: Iterable[Mapping[str, Any]]) -> int:
+        """Mine one round's validator events. Returns how many were new."""
+        found = directives_from_events(events)
+        self.directives.extend(found)
+        self.rounds_observed += 1
+        return len(found)
+
+    def observe_text(self, text: str) -> int:
+        found = parse_validator_output(text)
+        self.directives.extend(found)
+        return len(found)
+
+    def constraints(self) -> list[DerivedConstraint]:
+        return derive_constraints(self.directives, min_support=self.min_support)
+
+    @property
+    def actionable_fraction(self) -> float:
+        """How much of what the validator said actually named an action space.
+
+        Worth watching rather than assuming: it is the number that says whether
+        this mechanism is doing anything on a given simulator. A verifier that
+        only ever emits verdicts would sit near zero here, and the honest
+        response to that is to stop claiming the mechanism applies to it.
+        """
+        if not self.directives:
+            return 0.0
+        return sum(1 for d in self.directives if d.is_actionable) / len(self.directives)
+
+    def summary(self) -> str:
+        cs = self.constraints()
+        return (
+            f"{len(self.directives)} directive(s) over {self.rounds_observed} round(s), "
+            f"{self.actionable_fraction:.0%} naming an action space, "
+            f"{len(cs)} constraint(s) at support >= {self.min_support}"
+        )

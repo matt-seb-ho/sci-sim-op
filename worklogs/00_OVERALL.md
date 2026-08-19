@@ -435,3 +435,79 @@ does not promise blank-line separation.
 3. Run `RandomEditProposer` as a real arm, not a fixture — "does an LLM proposer
    beat random edits under the same gate" is a result either way.
 4. Calibrate hygiene thresholds against the real ground-truth tree (R4).
+
+---
+
+## 2026-08-19 — session 1, pass 3: constraints in the loop, and a real anchor
+
+**Suite: 401 passed, 2 skipped.**
+
+### Derived constraints are now live
+
+`ConstraintLedger` accumulates repair directives across rounds and publishes the
+derived constraints to the proposer before each call. Two design points:
+
+**Support accumulates across rounds, not within one.** A validator complaint seen
+once is one agent's slip; the same complaint on three different candidates in
+three different rounds is a property of how this model reads this interface —
+which is the thing an always-on adapter should carry, and the thing a per-round
+view structurally cannot see.
+
+**It reports `actionable_fraction`** — what share of validator output actually
+named a legal action space. This is the number that says whether the mechanism
+does anything on a given simulator, and it is worth measuring rather than
+assuming: a verifier that only emits verdicts sits at 0%, and the honest response
+is to stop claiming the mechanism applies to it. There is a test asserting that
+degradation is visible rather than silent.
+
+The marginal cost of a constraint found this way is zero — directives arrive as a
+by-product of rollouts already paid for.
+
+### The anchor slice is no longer hand-picked
+
+`evaluation/slices.py`, following Janus (arXiv:2606.31121)'s coverage / boundary
+/ fresh construction.
+
+My original 8-task anchor was *coverage-only*: spread across physics families so
+nothing could be won narrowly. That is necessary and insufficient, and getting it
+wrong is expensive here. The measured effect is concentrated in catastrophic-
+failure rescues; where the bare harness already has a usable template, adapters
+operate inside run-to-run noise. **An anchor chosen for coverage alone is mostly
+tasks where nothing can happen**, and a search scored on it reads noise for most
+of its budget — which, at a budget this small, is most of the run.
+
+The `in_play` score ranks a task by how much is actually at stake:
+
+- an **intermittent** zero rate — the task sometimes catastrophically fails and
+  sometimes does not, which is exactly what adapters are known to fix, and the
+  single most informative signal available. Peaks at a 50% zero rate and falls to
+  zero at either extreme;
+- across-seed spread — the outcome is not determined;
+- a mid-range mean — neither saturated nor hopeless.
+
+A task that always scores 0.98 and a task that always scores 0.0 both rank near
+zero, for the same reason: nothing a candidate does will move either.
+
+`boundary_fraction` defaults to 0.5 of the anchor. That is a bet, stated as one —
+it is currently reasoning, not evidence, and it is the first parameter to revisit
+once real baseline statistics exist.
+
+Two honesty properties, both tested:
+
+- **Cold start refuses to guess.** With no baseline statistics the boundary role
+  cannot be identified, so the anchor is coverage-only and says so. Guessing
+  would produce an anchor that looks principled and is arbitrary.
+- **Lost coverage is reported.** Weighting toward tasks in play necessarily costs
+  group coverage; which groups it cost is a decision the reader should see, not
+  one buried in a ranking.
+
+### Remaining
+
+1. Run `RandomEditProposer` as a real arm against `LLMProposer` under the same
+   gate. Given harness-updating capability is reported flat across model tiers,
+   this is a result either way — and it is the cheapest meaningful experiment we
+   can run before any real infrastructure exists.
+2. Calibrate hygiene thresholds against the real ground-truth tree (R4).
+3. Resolve R1 in repo3 before any real run: the container drops both
+   `GEOS_EVOLVE_*` variables, so the stop policy would be searched over a knob
+   nothing reads.

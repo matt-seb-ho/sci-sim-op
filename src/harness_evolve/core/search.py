@@ -44,6 +44,7 @@ from typing import Any, Callable, Protocol, Sequence
 from harness_evolve.core.acceptance import RegressionGate
 from harness_evolve.core.archive import Archive, ArchiveEntry
 from harness_evolve.core.candidate import Candidate
+from harness_evolve.evidence.directives import ConstraintLedger
 from harness_evolve.core.decision import (
     DecisionLog, DecisionRecord, EditType, Prediction, classify_edit, content_hash,
 )
@@ -118,6 +119,7 @@ class SearchResult:
     n_hygiene_blocked: int = 0
     n_proposer_failures: int = 0
     n_probe_rollouts: int = 0
+    constraint_summary: str = ""
     total_cost: Cost = field(default_factory=Cost)
     stagnated: bool = False
     notes: list[str] = field(default_factory=list)
@@ -133,6 +135,8 @@ class SearchResult:
             self.log.summary(),
             f"total rollout cost: {self.total_cost.to_dict()}",
         ]
+        if self.constraint_summary:
+            lines.append(f"validator constraints: {self.constraint_summary}")
         if self.stagnated:
             lines.append("search stagnated before exhausting its budget")
         lines += self.notes
@@ -154,6 +158,7 @@ class Search:
         demonstrations: Sequence[Demonstration] = (),
         decision_log_path: Path | None = None,
         ledger: Any = None,
+        mine_directives: bool = True,
     ) -> None:
         self.runner = runner
         self.proposer = proposer
@@ -169,6 +174,11 @@ class Search:
         # "harness evolution beat the baseline" mean "harness evolution had more
         # inference compute" (arXiv:2607.12227).
         self.ledger = ledger
+        # Constraints the validator states are mined from rollouts already paid
+        # for, so the marginal cost of one is zero. They are fed forward to the
+        # proposer as settled fact rather than left for it to guess -- writing a
+        # constraint is cheap, learning whether one is true costs a full round.
+        self.constraints = ConstraintLedger() if mine_directives else None
         self.log = DecisionLog(path=decision_log_path)
         self.archive = Archive()
         self._rollouts: dict[str, list[Rollout]] = {}
@@ -206,8 +216,28 @@ class Search:
             cost = cost + r.cost
         scores = {t: statistics.mean(v) for t, v in by_task.items()}
         self._by_seed[candidate.cid] = {t: list(v) for t, v in by_task.items()}
+        self._observe_directives(rollouts)
         self._record_spend(rollouts, note="anchor evaluation")
         return scores, cost, rollouts
+
+    def _observe_directives(self, rollouts: Sequence[Rollout]) -> None:
+        if self.constraints is None:
+            return
+        events = [ev for r in rollouts for ev in r.validator_events]
+        if events:
+            self.constraints.observe(events)
+
+    def _publish_constraints(self) -> None:
+        """Hand the proposer everything the validator has settled so far.
+
+        Duck-typed rather than added to the ``Proposer`` protocol: a proposer
+        that has no use for them (a scripted one, or the random control) should
+        not have to declare that.
+        """
+        if self.constraints is None:
+            return
+        if hasattr(self.proposer, "derived_constraints"):
+            self.proposer.derived_constraints = self.constraints.constraints()
 
     def _record_spend(self, rollouts: Sequence[Rollout], *, note: str) -> None:
         if self.ledger is None or not rollouts:
@@ -353,6 +383,7 @@ class Search:
                 self._rollouts.setdefault(parent.cid, []).extend(probe_rollouts)
 
             evidence = self._build_evidence(parent)
+            self._publish_constraints()
             try:
                 child = self.proposer.propose(
                     parent.candidate,
@@ -444,6 +475,8 @@ class Search:
 
         result.best = self.archive.best()
         result.stagnated = barren >= self.cfg.stagnation_rounds
+        if self.constraints is not None:
+            result.constraint_summary = self.constraints.summary()
         return result
 
     # -- helpers ----------------------------------------------------------

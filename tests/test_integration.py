@@ -221,3 +221,83 @@ def test_the_null_result_is_representable(runner):
     assert result.stagnated
     assert search.log.acceptance_rate() == 0.0
     assert "stagnated" in result.summary()
+
+
+def test_constraints_accumulate_across_rounds_and_reach_the_proposer():
+    """The contribution, wired into the live loop.
+
+    Support must accumulate across rounds: a complaint seen once is one agent's
+    slip, the same complaint on three different candidates is a property of how
+    this model reads this interface. A per-round view cannot see the difference.
+    """
+    from harness_evolve.core.search import Search, SearchConfig
+    from harness_evolve.types import Cost, Rollout, Score
+
+    COMPLAINT = (
+        "Error: XML Node Solvers/SinglePhaseFVM contains unused attribute "
+        "'bogusAttr'. Valid attributes are:\n  name, discretization, targetRegions\n"
+    )
+
+    class ComplainingRunner:
+        """Every rollout provokes the same validator complaint."""
+
+        capabilities = None
+
+        def run(self, candidate, task, seed=1):
+            return Rollout(
+                task=task, candidate_id=candidate.cid, seed=seed,
+                score=Score(task, 0.6), cost=Cost(tool_calls=10.0),
+                validator_events=[{"validator_output": COMPLAINT}],
+            )
+
+        def run_many(self, candidate, tasks, seeds=(1,)):
+            return [self.run(candidate, t, s) for s in seeds for t in tasks]
+
+    seen: list[int] = []
+
+    class Watching(ScriptedProposer):
+        derived_constraints = ()
+
+        def propose(self, parent, evidence=None, history=(), demonstrations=()):
+            seen.append(len(self.derived_constraints))
+            return super().propose(parent, evidence, history, demonstrations)
+
+    search = Search(
+        ComplainingRunner(),
+        Watching(script=[
+            ("memory", f"- start here\n- note {i}", {"targets_category": "bad_attribute_value"})
+            for i in range(3)
+        ]),
+        config=SearchConfig(budget_candidates=3, seeds=(1,), screen_tasks=0),
+    )
+    result = search.run(make_seed(), TASKS[:2])
+
+    # Mined from rollouts that were already paid for.
+    assert search.constraints.directives
+    assert search.constraints.actionable_fraction == 1.0
+
+    # By the time the proposer is called, the constraint is settled fact.
+    assert seen and seen[0] >= 1, (
+        "the proposer should be handed the validator's constraint, not left to "
+        f"guess it (saw {seen})"
+    )
+    constraint = search.constraints.constraints()[0]
+    assert constraint.entry["attr"] == "bogusAttr"
+    assert "discretization" in constraint.entry["valid"]
+
+    # And it is reported, so a run that mined nothing is visible as such.
+    assert "validator constraints:" in result.summary()
+    assert "naming an action space" in result.summary()
+
+
+def test_a_verdict_only_verifier_reports_zero_actionable():
+    """Honest degradation: on a simulator whose validator only says pass/fail,
+    this mechanism does nothing, and the run should say so rather than imply
+    coverage it does not have."""
+    from harness_evolve.evidence.directives import ConstraintLedger
+
+    ledger = ConstraintLedger()
+    ledger.observe([{"validator_output": "Error: validation failed."}] * 5)
+    assert ledger.actionable_fraction == 0.0
+    assert ledger.constraints() == []
+    assert "0% naming an action space" in ledger.summary()
