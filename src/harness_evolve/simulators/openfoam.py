@@ -125,8 +125,6 @@ class OpenFoamSimulator(SimulatorSpec):
 
     required_sections = REQUIRED_ENTRIES
 
-    #: Fraction of ground-truth files an agent must reproduce for the coverage
-    #: score to reach 1.0. Coverage is recall over authored paths.
     def parse(self, workspace: Path) -> Artifact:
         """Read every authored file in the case; never raises.
 

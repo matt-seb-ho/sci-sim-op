@@ -188,17 +188,27 @@ def _loc(path: str, line: int | None = None) -> str:
     return f"{path}:{line}" if line else path
 
 
+_SEVERITY_RANK: dict[Severity, int] = {"error": 0, "warn": 1, "info": 2}
+
+
 def _cap(findings: list[Finding], cfg: GateConfig, rule: str, path: str) -> list[Finding]:
-    """Truncate a rule's output, leaving a marker so the count is not lost."""
+    """Truncate a rule's output, leaving a marker so the count is not lost.
+
+    Blocking findings are kept in preference to warnings, and the marker
+    inherits the highest severity among the dropped ones: truncation must never
+    be able to turn a blocking report into a passing one.
+    """
     if len(findings) <= cfg.max_findings_per_rule:
         return findings
-    kept = findings[: cfg.max_findings_per_rule]
+    ordered = sorted(findings, key=lambda f: _SEVERITY_RANK[f.severity])
+    kept = ordered[: cfg.max_findings_per_rule]
+    dropped = ordered[cfg.max_findings_per_rule :]
+    worst = min(dropped, key=lambda f: _SEVERITY_RANK[f.severity]).severity
     kept.append(
         Finding(
             rule,
-            kept[0].severity,
-            f"and {len(findings) - cfg.max_findings_per_rule} further {rule} hit(s) "
-            "not listed",
+            worst,
+            f"and {len(dropped)} further {rule} hit(s) not listed",
             _loc(path),
         )
     )
@@ -221,13 +231,24 @@ def _strip_variants(token: str) -> str:
 _IDENT_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{3,}")
 
 
-def _identifier_tokens(text: str) -> dict[str, int]:
-    """Lowercased identifier-ish tokens mapped to their first offset."""
-    out: dict[str, int] = {}
+def _identifier_tokens(text: str) -> dict[str, tuple[str, int, int]]:
+    """Lowercased identifier token -> (as written, start, end) of its first use."""
+    out: dict[str, tuple[str, int, int]] = {}
     for m in _IDENT_RE.finditer(text):
-        tok = m.group(0).lower()
-        out.setdefault(tok, m.start())
+        out.setdefault(m.group(0).lower(), (m.group(0), m.start(), m.end()))
     return out
+
+
+def _in_path_context(text: str, start: int, end: int) -> bool:
+    """Is this occurrence written as part of a path or a filename glob?
+
+    ``compositionalMultiphaseFlow/benchmarks/thermalLeakyWell/`` and
+    ``PoroElastic_Mandel_*`` are pointers at ground truth; the same words in
+    running prose are the names of a physics family and a benchmark problem.
+    """
+    before = text[start - 1] if start else ""
+    after = text[end] if end < len(text) else ""
+    return before == "/" or after in ("/", "*")
 
 
 # ---------------------------------------------------------------------------
@@ -460,20 +481,28 @@ def rule_near_miss_filenames(
 
     findings: list[Finding] = []
     reported: set[str] = set()
-    for token, idx in sorted(_identifier_tokens(text).items(), key=lambda kv: kv[1]):
+    tokens = sorted(_identifier_tokens(text).items(), key=lambda kv: kv[1][1])
+    for token, (raw, idx, end) in tokens:
         if len(token) < MIN_STEM_LEN:
             continue
-        stem = _strip_variants(token)
+        stem = _strip_variants(token.strip("_"))
         if len(stem) < MIN_STEM_LEN or stem in GENERIC_STEMS or stem in reported:
             continue
         for candidate_stem in buckets.get(stem[:5], ()):
             if stem == candidate_stem:
                 reported.add(stem)
+                # A single-word stem is ambiguous with the solver or physics it
+                # is named after (``TriaxialDriver`` is a deck *and* a class),
+                # so it only blocks when written as a path or a filename glob.
+                # A compound stem (``poroelastic_terzaghi``) has no such
+                # innocent reading.
+                filename_shaped = "_" in stem or _in_path_context(text, idx, end)
+                as_element = re.search(rf"<\s*{re.escape(token)}\b", text, re.I)
                 findings.append(
                     Finding(
                         "near_miss_filename",
-                        "error",
-                        f"token {token!r} is the ground-truth deck stem "
+                        "error" if filename_shaped and not as_element else "warn",
+                        f"token {raw!r} is the ground-truth deck stem "
                         f"{candidate_stem!r} with the extension omitted",
                         _loc(path, _line_at(text, idx)),
                     )
@@ -486,7 +515,7 @@ def rule_near_miss_filenames(
                     Finding(
                         "near_miss_filename",
                         "warn",
-                        f"token {token!r} is a near miss (ratio {ratio:.2f}) for "
+                        f"token {raw!r} is a near miss (ratio {ratio:.2f}) for "
                         f"ground-truth deck stem {candidate_stem!r}",
                         _loc(path, _line_at(text, idx)),
                     )

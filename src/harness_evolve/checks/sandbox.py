@@ -116,7 +116,9 @@ def iter_plugin_paths(checks_dir: Path) -> list[Path]:
 
 def vet_plugin(plugin_path: Path, *, timeout: float = CHECK_TIMEOUT_S) -> PluginReport:
     """Run the full fence over one plugin. Never imports it into this process."""
-    plugin_path = Path(plugin_path)
+    # Resolved before the hop: the child runs with cwd set to the plugin
+    # directory, so a relative path would resolve against the wrong root.
+    plugin_path = Path(plugin_path).resolve()
     test_path = test_path_for(plugin_path)
     started = time.monotonic()
     if not test_path.exists():
@@ -335,9 +337,10 @@ def _run_vetting_child(plugin_path: Path, test_path: Path) -> int:
         main = getattr(test_module, "main", None)
         if callable(main):
             main()
-        for name in sorted(dir(test_module)):
-            if name.startswith("test_") and callable(getattr(test_module, name)):
-                getattr(test_module, name)()
+        else:
+            for name in sorted(dir(test_module)):
+                if name.startswith("test_") and callable(getattr(test_module, name)):
+                    getattr(test_module, name)()
     except BaseException as exc:  # noqa: BLE001 -- test may raise anything
         import traceback
 
