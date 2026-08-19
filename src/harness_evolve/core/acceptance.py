@@ -97,7 +97,20 @@ class RegressionGate:
         parent_cost: Mapping[str, float] | None = None,
         hygiene_ok: bool = True,
         checks_ok: bool = True,
+        child_by_seed: Mapping[str, Sequence[float]] | None = None,
+        parent_by_seed: Mapping[str, Sequence[float]] | None = None,
     ) -> GateResult:
+        """Gate a child against its parent.
+
+        ``*_by_seed`` carry per-task, per-seed scores. Supplying them changes
+        what a "regression" means, and the difference is not cosmetic. Judging a
+        cliff on seed *means* treats one unlucky rollout as a property of the
+        candidate: in a setting whose defining feature is occasional zero-score
+        terminations, every candidate acquires a fresh zero somewhere by chance,
+        and a gate reading means rejects nearly everything -- including genuine
+        improvements. Comparing distributions instead asks whether the child
+        fails where the parent reliably did not.
+        """
         reasons: list[str] = []
         metrics: dict[str, Any] = {}
 
@@ -117,7 +130,24 @@ class RegressionGate:
         deltas = {t: child_scores[t] - parent_scores[t] for t in common}
         worst_task = min(deltas, key=lambda t: deltas[t])
         worst = deltas[worst_task]
-        mean_delta = sum(deltas.values()) / len(deltas)
+
+        # The aggregate asks "is the adapter better when it works", and the
+        # zero-rate clause below asks "does it fail more often". Separating them
+        # is not a refinement -- it is the decomposition the whole effect has.
+        # Averaging them together lets one unlucky zero out of two seeds swamp a
+        # real quality gain, and then the gate rejects the improvement and keeps
+        # the candidate that got lucky.
+        if child_by_seed and parent_by_seed:
+            best_deltas = {
+                t: max(child_by_seed.get(t) or [child_scores[t]])
+                - max(parent_by_seed.get(t) or [parent_scores[t]])
+                for t in common
+            }
+            mean_delta = sum(best_deltas.values()) / len(best_deltas)
+            metrics["aggregate_basis"] = "best-of-seeds"
+        else:
+            mean_delta = sum(deltas.values()) / len(deltas)
+            metrics["aggregate_basis"] = "seed-mean"
         metrics.update(
             {
                 "worst_task": worst_task,
@@ -129,10 +159,13 @@ class RegressionGate:
 
         # (3) no per-task cliff
         if worst < -self.max_task_regression:
-            reasons.append(
-                f"per-task regression on {worst_task}: {worst:+.3f} "
-                f"(limit -{self.max_task_regression:.3f})"
-            )
+            if self._is_noise(worst_task, child_by_seed, parent_by_seed):
+                metrics.setdefault("tolerated_as_noise", []).append(worst_task)
+            else:
+                reasons.append(
+                    f"per-task regression on {worst_task}: {worst:+.3f} "
+                    f"(limit -{self.max_task_regression:.3f})"
+                )
 
         # (4) no aggregate regression
         if mean_delta < -self.max_mean_regression:
@@ -145,7 +178,10 @@ class RegressionGate:
         if self.require_zero_rate_non_increasing:
             child_zeros = {t for t in common if child_scores[t] <= 1e-9}
             parent_zeros = {t for t in common if parent_scores[t] <= 1e-9}
-            new_zeros = sorted(child_zeros - parent_zeros)
+            new_zeros = sorted(
+                t for t in (child_zeros - parent_zeros)
+                if not self._zero_is_noise(t, child_by_seed, parent_by_seed)
+            )
             metrics["new_zero_tasks"] = new_zeros
             if new_zeros:
                 reasons.append(
@@ -167,6 +203,52 @@ class RegressionGate:
                     )
 
         return GateResult(not reasons, reasons, metrics)
+
+    # -- distinguishing a regression from an unlucky rollout --------------
+    def _is_noise(
+        self,
+        task: str,
+        child_by_seed: Mapping[str, Sequence[float]] | None,
+        parent_by_seed: Mapping[str, Sequence[float]] | None,
+    ) -> bool:
+        """Did the child fail where the parent reliably did not?
+
+        With no per-seed data, or with one seed, the honest answer is that we
+        cannot tell -- and the safe reading of "cannot tell" for a gate whose job
+        is preventing catastrophic regressions is to treat the drop as real.
+        """
+        child = list((child_by_seed or {}).get(task) or [])
+        parent = list((parent_by_seed or {}).get(task) or [])
+        if len(child) < 2 or len(parent) < 2:
+            return False
+        # A drop that does not survive comparing best-case to best-case is a
+        # sampling artifact, not a property of the adapter.
+        return max(child) >= max(parent) - self.max_task_regression
+
+    def _zero_is_noise(
+        self,
+        task: str,
+        child_by_seed: Mapping[str, Sequence[float]] | None,
+        parent_by_seed: Mapping[str, Sequence[float]] | None,
+    ) -> bool:
+        """Is a new zero on this task a regression, or the tail doing its thing?
+
+        Zero-score terminations are stochastic here by nature -- that is the
+        phenomenon the adapters exist to suppress. A zero at one seed out of
+        several, on a task the parent also sometimes zeroed, is the base rate. A
+        zero at every seed on a task the parent never zeroed is a regression.
+        """
+        child = list((child_by_seed or {}).get(task) or [])
+        parent = list((parent_by_seed or {}).get(task) or [])
+        if len(child) < 2:
+            return False
+        child_zero_rate = sum(1 for v in child if v <= 1e-9) / len(child)
+        if child_zero_rate >= 1.0:
+            return False  # always fails: unambiguous
+        if not parent:
+            return child_zero_rate < 0.5
+        parent_zero_rate = sum(1 for v in parent if v <= 1e-9) / len(parent)
+        return child_zero_rate <= parent_zero_rate + 0.5
 
     # -- GEPA AcceptanceCriterion protocol --------------------------------
     def should_accept(self, proposal: Any, state: Any) -> bool:

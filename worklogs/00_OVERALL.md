@@ -343,3 +343,95 @@ what an adapter is *for*.
 This displaces EFC-as-objective as the headline contribution. EFC stays as a
 search signal (W3 built it, with its gaming holes documented), but it is a proxy
 we would have to defend, and this is a mechanism we can demonstrate.
+
+---
+
+## 2026-08-19 — session 1, integration pass 2: all six workstreams in
+
+**Suite: 384 passed, 2 skipped.** Every workstream integrated, plus the LLM
+proposer and a full end-to-end integration suite.
+
+### The integration test earned its keep immediately
+
+`tests/test_integration.py` assembles the real parts — mock simulator, mock
+runner, evidence corpus, hygiene gate, regression gate, archive, decision log,
+budget ledger — and runs an actual search. It failed on first run, and the
+failure was a real design bug in the gate, not a fixture problem:
+
+**The "no new failures-as-zero" clause rejected nearly every candidate,
+including genuine improvements.** Zero-score terminations are stochastic — that
+is the phenomenon the adapters exist to suppress. So every candidate acquires a
+fresh zero *somewhere* by chance. Judged on seed means, that reads as a
+catastrophic per-task regression, and the gate rejects the improvement while
+keeping whichever candidate happened to get lucky. The trace was unambiguous:
+
+```
+seed         mean=0.1411  accepted=True
+candidate 1  mean=0.2125  REJECTED: per-task regression on task_4: -0.383
+candidate 2  mean=0.2701  REJECTED: per-task regression on task_3: -0.392
+```
+
+Both rejected candidates were substantially better. This is my own open question
+#3 from `W1_core.md` arriving as a concrete failure, which is the honest way for
+it to arrive.
+
+**The fix separates the two questions the effect actually decomposes into.**
+
+- *Is the adapter better when it works?* — the aggregate clause now compares
+  **best-of-seeds** per task when per-seed data is available.
+- *Does it fail more often?* — the zero-rate clause compares **rates**, not
+  incidences: a zero at one seed of several, on a task the parent also sometimes
+  zeroed, is the base rate; a zero at every seed on a task the parent never
+  zeroed is a regression.
+- The per-task cliff test tolerates a drop that does not survive a best-case to
+  best-case comparison, recorded as `tolerated_as_noise` rather than silently.
+
+Averaging quality and reliability into one number and gating on it was always
+wrong here, given that the entire published finding is that those two move
+independently. With no per-seed data, or one seed, the gate stays conservative
+and treats a drop as real — "cannot tell" must read as "assume real" for a gate
+whose job is preventing catastrophic regressions.
+
+`Search` now threads per-task per-seed scores through to the gate.
+
+### Also found by integration
+
+The directive parser could not handle two validator errors with no blank line
+between them: the first error's alternatives list swallowed the second error
+entirely. Terminator now stops at the next diagnostic line. Real GEOS output
+does not promise blank-line separation.
+
+### Contract fixes from W6
+
+- **`KNOWN_CHECKS` was a snapshot of a registry.** A stop policy naming
+  `cross_section_refs` — a real shipped check — failed validation, silently
+  truncating the search space to four hardcoded names. Now resolves from the
+  live registry.
+- **`docs/INTEGRATION_REQUIREMENTS.md` R1 (blocking, repo3-side):**
+  `docker_cmd.py` forwards a fixed `GEOS_HOOK_*` allowlist and drops both
+  `GEOS_EVOLVE_*` variables at the container boundary. The search would vary
+  feedback shape while the hook saw a constant — the same failure class as the
+  dead reward channel, equally invisible in logs. The doc gives the test that
+  settles it.
+
+### State
+
+| Module | Tests | Notes |
+|---|---|---|
+| `core/` (manifest, candidate, archive, acceptance, decision, search) | 20 | seed-aware gate |
+| `simulators/` (mock, geos, openfoam, lammps) | 85 | TreeSim parity verified against repo3 |
+| `evidence/` (corpus, diagnostics, efc, directives) | 60 | includes the directive contribution |
+| `hygiene/` (corpus, gate, audit) | 60 | 11 rules; blocks both real leaked artifacts |
+| `evaluation/` (stats, baselines, protocol, report) | 40 | four verdict outcomes incl. `mechanism_only` |
+| `runners/` + `checks/` | 83 | subprocess runner unexecuted here by necessity |
+| `proposers/` (edits, llm, scripted, demonstrations) | 42 | bounded add/delete/replace |
+| integration | 6 | the test the predecessor did not have |
+
+### Next
+
+1. Wire derived constraints into the live loop (mined per round, fed forward).
+2. Adopt Janus's coverage/boundary/fresh anchor construction over my hand-picked
+   slice.
+3. Run `RandomEditProposer` as a real arm, not a fixture — "does an LLM proposer
+   beat random edits under the same gate" is a result either way.
+4. Calibrate hygiene thresholds against the real ground-truth tree (R4).

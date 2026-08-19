@@ -405,3 +405,40 @@ def test_search_records_every_rollout_including_rejected_ones():
     assert recorded == len(runner.calls), (
         f"ledger recorded {recorded} of {len(runner.calls)} rollouts actually run"
     )
+
+
+def test_gate_tolerates_an_unlucky_seed_but_not_a_real_cliff():
+    """With stochastic zero-score terminations, every candidate acquires a fresh
+    zero somewhere by chance. A gate reading seed means treats that as a
+    property of the adapter and rejects nearly everything, including real
+    improvements -- which is what the integration test surfaced."""
+    from harness_evolve.core.acceptance import RegressionGate
+
+    gate = RegressionGate()
+    # Child is better at its best seed; one unlucky rollout dragged the mean.
+    noisy = gate.evaluate(
+        {"a": 0.90, "b": 0.45}, {"a": 0.80, "b": 0.85},
+        child_by_seed={"a": [0.90, 0.90], "b": [0.90, 0.0]},
+        parent_by_seed={"a": [0.80, 0.80], "b": [0.85, 0.85]},
+    )
+    assert noisy.accepted, noisy.reason
+    assert "b" in noisy.metrics.get("tolerated_as_noise", [])
+    # Judged on achievable quality, with reliability handled separately.
+    assert noisy.metrics["aggregate_basis"] == "best-of-seeds"
+
+    # Child fails at every seed on a task the parent always handled.
+    real = gate.evaluate(
+        {"a": 0.90, "b": 0.0}, {"a": 0.80, "b": 0.85},
+        child_by_seed={"a": [0.90, 0.90], "b": [0.0, 0.0]},
+        parent_by_seed={"a": [0.80, 0.80], "b": [0.85, 0.85]},
+    )
+    assert not real.accepted
+
+
+def test_without_per_seed_data_the_gate_stays_conservative():
+    """'Cannot tell' must read as 'assume real' for a gate whose job is
+    preventing catastrophic regressions."""
+    from harness_evolve.core.acceptance import RegressionGate
+
+    r = RegressionGate().evaluate({"a": 0.9, "b": 0.45}, {"a": 0.8, "b": 0.85})
+    assert not r.accepted

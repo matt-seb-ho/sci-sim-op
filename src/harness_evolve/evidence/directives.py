@@ -140,7 +140,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             r"(?:XML Node\s+(?P<context>\S+)\s+)?contains unused attribute\s+"
             r"['\"](?P<offender>[^'\"]+)['\"]\.?\s*"
-            r"Valid attributes are:?\s*(?P<alts>.+?)(?:\n\s*\n|\Z)",
+            r"Valid attributes are:?\s*(?P<alts>.+?)(?=\n\s*\n|\n\s*(?:Error|Warning|Fatal)\b|\Z)",
             re.IGNORECASE | re.DOTALL,
         ),
     ),
@@ -149,7 +149,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             r"The tag\s+['\"]?(?P<offender>[A-Za-z0-9_:.\-]+)['\"]?\s+is invalid"
             r"(?:\s+within\s+(?P<context>[A-Za-z0-9_:.\-]+))?\.?\s*"
-            r"All available tags are:?\s*(?P<alts>.+?)(?:\n\s*\n|\Z)",
+            r"All available tags are:?\s*(?P<alts>.+?)(?=\n\s*\n|\n\s*(?:Error|Warning|Fatal)\b|\Z)",
             re.IGNORECASE | re.DOTALL,
         ),
     ),
@@ -158,7 +158,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             r"No child named\s+['\"](?P<offender>[^'\"]+)['\"]\s+found\.?\s*"
             r"The children of\s+(?P<context>\S+?)\s+are:?\s*"
-            r"(?P<alts>.+?)(?:\n\s*\n|\Z)",
+            r"(?P<alts>.+?)(?=\n\s*\n|\n\s*(?:Error|Warning|Fatal)\b|\Z)",
             re.IGNORECASE | re.DOTALL,
         ),
     ),

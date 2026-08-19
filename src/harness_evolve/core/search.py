@@ -172,6 +172,10 @@ class Search:
         self.log = DecisionLog(path=decision_log_path)
         self.archive = Archive()
         self._rollouts: dict[str, list[Rollout]] = {}
+        # Per-task, per-seed scores. The gate needs the distribution, not the
+        # mean: with stochastic zero-score terminations, a mean-based cliff test
+        # rejects almost every candidate, including genuine improvements.
+        self._by_seed: dict[str, dict[TaskId, list[float]]] = {}
         self._seen_hashes: dict[str, set[str]] = {}
 
     # -- evaluation -------------------------------------------------------
@@ -201,6 +205,7 @@ class Search:
             by_task.setdefault(r.task, []).append(r.score.value)
             cost = cost + r.cost
         scores = {t: statistics.mean(v) for t, v in by_task.items()}
+        self._by_seed[candidate.cid] = {t: list(v) for t, v in by_task.items()}
         self._record_spend(rollouts, note="anchor evaluation")
         return scores, cost, rollouts
 
@@ -413,6 +418,8 @@ class Search:
                 parent.scores,
                 child_cost=cost.to_dict(),
                 parent_cost=parent.cost,
+                child_by_seed=self._by_seed.get(child.cid),
+                parent_by_seed=self._by_seed.get(parent.cid),
             )
             entry = self.archive.add(
                 ArchiveEntry(
