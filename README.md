@@ -23,6 +23,7 @@ python3 scripts/evolve.py preflight   # what would make a real run meaningless
 | what must change elsewhere before a real run means anything | [`docs/INTEGRATION_REQUIREMENTS.md`](docs/INTEGRATION_REQUIREMENTS.md) |
 | the first result, and why its two views disagree | [`docs/EXPERIMENT_01_proposer_control.md`](docs/EXPERIMENT_01_proposer_control.md) |
 | what the evaluation protocol refuses, and why | [`docs/EXPERIMENT_02_protocol_dryrun.md`](docs/EXPERIMENT_02_protocol_dryrun.md) |
+| the sequence for a first real run | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
 | how any of this was decided | [`worklogs/`](worklogs/) |
 
 ## The five facts that determine the design

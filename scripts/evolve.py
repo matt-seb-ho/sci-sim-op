@@ -250,6 +250,27 @@ def cmd_slices(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plan(args: argparse.Namespace) -> int:
+    """Which search budgets can their own baselines actually match?"""
+    from harness_evolve.evaluation.budget import estimate_cost, plan_budget
+
+    report = plan_budget(
+        n_held_out=args.held_out, n_seeds=args.seeds,
+        anchor_size=args.anchor, search_seeds=args.search_seeds,
+        max_k=args.max_k,
+    )
+    print(report.render(wanted=args.wanted or None))
+    print("\n rough cost of each feasible budget "
+          "(order of magnitude, not a quotation):")
+    for o in report.feasible():
+        est = estimate_cost(o.search_rollouts, workers=args.workers)
+        print(f"  {o.search_rollouts:>5d} rollouts "
+              f"({report.candidates_for(o):>3d} candidates): "
+              f"${est['usd']:>6.2f}, {est['wall_hours']:>5.1f}h at "
+              f"{args.workers} workers")
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     from harness_evolve.hygiene.audit import main as audit_main
 
@@ -286,6 +307,16 @@ def main() -> int:
     p.add_argument("--probe", type=int, default=4)
     p.add_argument("--out", default="")
     p.set_defaults(fn=cmd_slices)
+
+    p = sub.add_parser("plan", help="search budgets whose baselines can match them")
+    p.add_argument("--held-out", type=int, default=10)
+    p.add_argument("--seeds", type=int, default=5, help="seeds at final evaluation")
+    p.add_argument("--anchor", type=int, default=8)
+    p.add_argument("--search-seeds", type=int, default=2)
+    p.add_argument("--max-k", type=int, default=12)
+    p.add_argument("--wanted", type=int, default=0)
+    p.add_argument("--workers", type=int, default=4)
+    p.set_defaults(fn=cmd_plan)
 
     p = sub.add_parser("audit", help="contamination gate over an adapter")
     p.add_argument("--adapter-dir", required=True)
