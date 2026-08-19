@@ -378,3 +378,30 @@ def test_a_non_anchor_rollout_cannot_be_scored():
     from harness_evolve.types import Rollout, Score
     bad = Rollout("t", "c", 1, Score("t", 0.9), slice="probe")
     assert not bad.selectable
+
+
+def test_search_records_every_rollout_including_rejected_ones():
+    """A search that counts only its successes understates its own budget, which
+    is the accounting error that makes "evolution beat the baseline" mean
+    "evolution had more inference compute"."""
+    from harness_evolve.evaluation.baselines import BudgetLedger
+
+    ledger = BudgetLedger()
+    runner = FakeRunner()
+    seed = make_seed("- general advice\n- alpha handling\n- beta handling\n"
+                     "- gamma handling\n- delta handling")
+    # A strictly worse child: will be rejected, but its rollouts were still spent.
+    search = Search(
+        runner,
+        ScriptedProposer(script=[("memory", "- general advice",
+                                  {"targets_category": "extra_block"})]),
+        ledger=ledger,
+        config=SearchConfig(budget_candidates=1, seeds=(1,), screen_tasks=0),
+    )
+    result = search.run(seed, TASKS)
+
+    assert not search.log.records[-1].accepted
+    recorded = sum(e.rollouts for e in ledger.entries if e.arm == "search")
+    assert recorded == len(runner.calls), (
+        f"ledger recorded {recorded} of {len(runner.calls)} rollouts actually run"
+    )

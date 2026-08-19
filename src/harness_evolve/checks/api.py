@@ -66,6 +66,20 @@ class CheckContext:
 CheckFn = Callable[[Artifact, CheckContext], Sequence[Finding]]
 
 
+def known_check_names(plugins: Mapping[str, CheckFn] | None = None) -> frozenset[str]:
+    """Every check name a stop policy may legally enable, right now.
+
+    ``core/manifest.py`` ships a static ``KNOWN_CHECKS`` set, which cannot know
+    about ``cross_section_refs`` or about a candidate-authored plugin that has
+    just cleared the fence. Pass this into ``Manifest.validate(known_checks=...)``
+    so a policy is validated against the checks that actually exist, rather than
+    against a list that has to be edited by hand every time one is added.
+    """
+    from harness_evolve.checks.builtins import BUILTIN_CHECKS
+
+    return frozenset(BUILTIN_CHECKS) | frozenset(plugins or {})
+
+
 def run_checks(
     artifact: Artifact,
     ctx: CheckContext,

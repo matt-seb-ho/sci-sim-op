@@ -16,6 +16,7 @@ from harness_evolve.checks.api import (
     FEEDBACK_SHAPES,
     CheckContext,
     CheckFn,
+    known_check_names,
     render_feedback,
     run_checks,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "ConstraintSet",
     "ElementView",
     "PluginReport",
+    "known_check_names",
     "load_vetted_plugins",
     "rejected",
     "render_constraints_prose",

@@ -153,6 +153,7 @@ class Search:
         config: SearchConfig | None = None,
         demonstrations: Sequence[Demonstration] = (),
         decision_log_path: Path | None = None,
+        ledger: Any = None,
     ) -> None:
         self.runner = runner
         self.proposer = proposer
@@ -161,6 +162,13 @@ class Search:
         self.evidence_builder = evidence_builder
         self.cfg = config or SearchConfig()
         self.demonstrations = list(demonstrations)
+        # The search records its own spend so budget matching is auditable
+        # rather than asserted. Every rollout counts, including those spent on
+        # candidates that were screened out or rejected -- a search that only
+        # counts its successes is exactly the accounting error that lets
+        # "harness evolution beat the baseline" mean "harness evolution had more
+        # inference compute" (arXiv:2607.12227).
+        self.ledger = ledger
         self.log = DecisionLog(path=decision_log_path)
         self.archive = Archive()
         self._rollouts: dict[str, list[Rollout]] = {}
@@ -193,7 +201,13 @@ class Search:
             by_task.setdefault(r.task, []).append(r.score.value)
             cost = cost + r.cost
         scores = {t: statistics.mean(v) for t, v in by_task.items()}
+        self._record_spend(rollouts, note="anchor evaluation")
         return scores, cost, rollouts
+
+    def _record_spend(self, rollouts: Sequence[Rollout], *, note: str) -> None:
+        if self.ledger is None or not rollouts:
+            return
+        self.ledger.record_rollouts("search", list(rollouts), note=note)
 
     def _probe(
         self, candidate: Candidate, tasks: Sequence[TaskId]
@@ -216,6 +230,7 @@ class Search:
         cost = Cost()
         for r in rollouts:
             cost = cost + r.cost
+        self._record_spend(rollouts, note="probe evidence (not scored)")
         return cost, rollouts
 
     def _screen(

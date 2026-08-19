@@ -486,3 +486,18 @@ def test_a_vetted_plugin_runs_through_run_checks() -> None:
         artifact(broken), ctx(), ["parse", "lazy_resolved_refs"], plugins=plugins
     )
     assert render_feedback(findings, "structured_errors").startswith("1 validation error")
+
+
+def test_known_check_names_covers_builtins_and_vetted_plugins() -> None:
+    # core/manifest.py's static KNOWN_CHECKS omits cross_section_refs and can
+    # never know about a plugin that just cleared the fence, so a stop policy
+    # must be validated against the checks that actually exist.
+    from harness_evolve.checks import known_check_names
+    from harness_evolve.core.manifest import KNOWN_CHECKS
+
+    plugins, _ = load_vetted_plugins(PLUGINS_DIR)
+    names = known_check_names(plugins)
+
+    assert KNOWN_CHECKS <= names
+    assert "cross_section_refs" in names
+    assert "lazy_resolved_refs" in names
