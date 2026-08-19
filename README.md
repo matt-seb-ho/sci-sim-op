@@ -11,6 +11,7 @@ coding harness do not change. Only the adapter moves.
 ```bash
 python3 scripts/evolve.py demo        # full search on a mock simulator, ~30s, $0
 python3 scripts/evolve.py preflight   # what would make a real run meaningless
+python3 scripts/evolve.py plan        # search budgets the baselines can match
 ```
 
 ## Start here
@@ -23,6 +24,7 @@ python3 scripts/evolve.py preflight   # what would make a real run meaningless
 | what must change elsewhere before a real run means anything | [`docs/INTEGRATION_REQUIREMENTS.md`](docs/INTEGRATION_REQUIREMENTS.md) |
 | the first result, and why its two views disagree | [`docs/EXPERIMENT_01_proposer_control.md`](docs/EXPERIMENT_01_proposer_control.md) |
 | what the evaluation protocol refuses, and why | [`docs/EXPERIMENT_02_protocol_dryrun.md`](docs/EXPERIMENT_02_protocol_dryrun.md) |
+| whether a real model can follow the proposer contract | [`docs/EXPERIMENT_03_proposer_smoke.md`](docs/EXPERIMENT_03_proposer_smoke.md) |
 | the sequence for a first real run | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
 | what porting to a new simulator actually costs | [`docs/ADDING_A_SIMULATOR.md`](docs/ADDING_A_SIMULATOR.md) |
 | how any of this was decided | [`worklogs/`](worklogs/) |
@@ -102,12 +104,14 @@ src/harness_evolve/
   simulators/   base protocol + geos / openfoam / lammps / mock
   evidence/     layered corpus, diagnostics, EFC, repair directives
   hygiene/      contamination gate — 11 rules, blocking, run before any rollout
-  proposers/    bounded edits, LLM proposer, scripted + random controls
-  evaluation/   compute-matched baselines, paired statistics, slices, reports
-  runners/      mock / cached / subprocess
+  proposers/    bounded edits, LLM proposer, model backends, demonstrations,
+                scripted + random controls
+  evaluation/   compute-matched baselines, paired statistics, slice construction,
+                budget planning, protocol enforcement, reports
+  runners/      mock / cached / recording (resume) / subprocess
   checks/       check-plugin sandbox and built-ins
 scripts/        evolve.py CLI, experiments
-tests/          404 tests, offline, ~4s
+tests/          run offline in a few seconds — `python3 -m pytest tests/ -q`
 ```
 
 ## Status

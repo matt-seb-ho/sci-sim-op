@@ -37,10 +37,13 @@ simulator-specific, harness-specific, or model-specific.
 | `RolloutRunner` | `runners/base.py` | how a candidate is executed on a task — real, cached-replay, or mock |
 | `Proposer` | `proposers/base.py` | how a child candidate is produced from a parent plus evidence |
 
-The cached and mock runners are not conveniences. The cached runner is what
-makes offline protocol work (compute-matched baselines, paired statistics,
-binding-constraint probes) possible for ~$0; the mock runner is what makes the
-search loop testable end-to-end, which v1 never was.
+The non-real runners are not conveniences. The **recording** runner appends
+every rollout durably as it completes, which makes a 16–37 hour search resumable
+after a crash and turns its rollouts into a corpus; the **cached** runner replays
+that corpus, which is what makes offline protocol work (compute-matched
+baselines, paired statistics, binding-constraint probes) possible for ~$0 — the
+statistics are cheap and the rollouts are the expensive part. The **mock** runner
+is what makes the search loop testable end to end, which v1 never was.
 
 ## The loop
 
@@ -60,8 +63,17 @@ search loop testable end-to-end, which v1 never was.
         │                        │
         │            regression gate  ── no per-task cliff · no new zeros
         │                        │        no aggregate drop · no cost blowup
+        │                        │        no cumulative drift from the seed
         └────────────────────────┴──→ decision record (prediction vs outcome)
+                                 └──→ validator directives → derived constraints
+                                      (fed forward to the next proposal, free)
 ```
+
+The gate bounds drift against the **seed** as well as the immediate parent:
+a sequence of individually acceptable steps can walk reliability downhill, since
+each is only ever compared to the step before it. Seed overfitting is the one
+thing it cannot bound — selection sees only the search seeds — which is why the
+protocol re-scores the winner at held-out seeds before any number is reported.
 
 **Round structure.** One *fixed* anchor slice scores every candidate, so
 round-over-round numbers are comparable by construction. A separate probe slice
@@ -74,11 +86,15 @@ candidate — alongside compute-matched baselines.
 ```
 core/         manifest, candidate, archive, acceptance, decision log, search loop
 simulators/   base protocol + geos/ openfoam/ lammps/ mock/
-evidence/     layered corpus, per-task diagnostics, EFC
-hygiene/      contamination gate (filenames, paths, task ids, content, numerics)
-proposers/    base protocol, LLM proposer, scripted proposer (tests)
-evaluation/   compute-matched baselines, paired statistics, reports
-runners/      base protocol, real / cached / mock
+evidence/     layered corpus, per-task diagnostics, EFC, repair directives
+hygiene/      contamination gate: filenames, path components, task-id tables,
+              blocklist, content overlap, numeric literals, near-miss stems,
+              structural fingerprints, rare-token overlap, lookup-table shape
+proposers/    base protocol, bounded edits, LLM proposer, model backends,
+              expert demonstrations, scripted + random controls
+evaluation/   compute-matched baselines, paired and tail statistics, slice
+              construction, budget planning, protocol enforcement, reports
+runners/      base protocol, subprocess / recording / cached / mock
 checks/       check-plugin sandbox and built-ins
 ```
 

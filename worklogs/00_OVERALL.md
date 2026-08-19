@@ -875,3 +875,62 @@ against a mock is worth more than one that cannot start without a network client
    answer, so no further spend.
 2. Whether to keep the loop running now that substantive work is
    infrastructure-gated.
+
+---
+
+## 2026-08-19 — session 1, pass 10: verification and drift
+
+**Suite: 453 passed, 2 skipped.** 25 commits.
+
+Two review passes, both free, both finding something.
+
+### The statistics, checked from the outside
+
+`tests/test_stats_verification.py` — the same quantities the evaluation module
+computes, checked against values worked out by hand. The motivation is narrow:
+that module produces the number that decides whether a result gets believed, and
+"the tests pass" and "the arithmetic is right" are different claims when the same
+author wrote both. The cases target failures that would be invisible in a
+rendered report — an inverted delta sign, a permutation test that cannot reject,
+a noise band wide enough to swallow the effect, a rescue ledger pointing
+backwards.
+
+**19 of 20 passed first time.** The twentieth was my expectation, not the code.
+
+But the discrepancy was worth keeping rather than filing as a non-finding. The
+across-seed SD is the **sample** SD (n−1), consistently everywhere. At n=2 seeds
+— the search configuration — that is √2 ≈ 1.41× the population SD, so the noise
+band is ~41% wider than it would otherwise be: more ties, fewer wins, a more
+conservative verdict.
+
+The direction is right. But it means **the seed count moves the verdict through
+two channels** — directly through how much noise there is, and indirectly through
+how wide the band estimated from it turns out to be. Going from 2 to 3 search
+seeds narrows the band ~18% on top of the direct variance reduction. Nobody chose
+that; it fell out of an estimator choice. Now in the runbook and pinned in a test.
+
+### Documentation drift, after nine passes of changes
+
+Found by checking each mechanically verifiable claim rather than re-reading:
+
+- README claimed **404 tests** (actual 445) — a number that rots by construction;
+- README package map omitted `recording`, `demonstrations`, `backends`, `budget`,
+  `protocol`;
+- **ARCHITECTURE's own package map omitted repair directives** — the mechanism
+  that document exists to describe, and the one thing in the project I would call
+  a contribution;
+- ARCHITECTURE's loop diagram predated both the cumulative-drift guard and the
+  derived-constraint feedback path;
+- `EXPERIMENT_03` was written and never linked from the index.
+
+None of this was visible from inside any single change, which is exactly why a
+deliberate pass was worth spending.
+
+`tests/test_docs_consistency.py` guards it going forward: every package
+directory appears in both maps, every internal link resolves, every experiment
+write-up is indexed, every advertised CLI subcommand exists, the hygiene rule
+count matches the registry, and the README may not hardcode a test count at all.
+
+The checks are deliberately narrow — mechanically verifiable claims only. A doc
+test that tried to police meaning would fail constantly and be deleted; one that
+catches a dead link and a missing module is cheap enough to survive.
