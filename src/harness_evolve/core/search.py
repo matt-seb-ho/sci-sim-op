@@ -37,7 +37,7 @@ real thing without knowing which.
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Protocol, Sequence
 
@@ -89,6 +89,11 @@ class SearchConfig:
         discard good candidates on a coin flip.
     stagnation_rounds:
         Barren rounds before the loop widens its search.
+    probe_tasks / probe_seeds / probe_every:
+        Fresh-evidence sampling. Kept small and infrequent because probe
+        rollouts cost the same as anchor rollouts while contributing nothing to
+        selection -- they buy the proposer new failure modes to reason about,
+        which is worth some budget but not much of it.
     """
 
     budget_candidates: int = 20
@@ -98,6 +103,9 @@ class SearchConfig:
     screen_margin: float = 0.15
     stagnation_rounds: int = 4
     max_consecutive_proposer_failures: int = 5
+    probe_tasks: int = 2
+    probe_seeds: tuple[int, ...] = (1,)
+    probe_every: int = 3
 
 
 @dataclass
@@ -109,6 +117,7 @@ class SearchResult:
     n_screened_out: int = 0
     n_hygiene_blocked: int = 0
     n_proposer_failures: int = 0
+    n_probe_rollouts: int = 0
     total_cost: Cost = field(default_factory=Cost)
     stagnated: bool = False
     notes: list[str] = field(default_factory=list)
@@ -118,7 +127,8 @@ class SearchResult:
             f"proposed {self.n_proposed}, "
             f"screened out {self.n_screened_out}, "
             f"hygiene-blocked {self.n_hygiene_blocked}, "
-            f"proposer failures {self.n_proposer_failures}",
+            f"proposer failures {self.n_proposer_failures}, "
+            f"probe rollouts {self.n_probe_rollouts}",
             self.archive.summary(),
             self.log.summary(),
             f"total rollout cost: {self.total_cost.to_dict()}",
@@ -160,14 +170,53 @@ class Search:
     def _evaluate(
         self, candidate: Candidate, tasks: Sequence[TaskId], seeds: Sequence[int]
     ) -> tuple[dict[TaskId, float], Cost, list[Rollout]]:
-        rollouts = self.runner.run_many(candidate, tasks, seeds)
+        """Score a candidate on the anchor slice.
+
+        Every rollout is tagged ``anchor`` and the aggregation refuses anything
+        else. The refusal is deliberate belt-and-braces: the failure it prevents
+        -- selecting on data that was also shown to the proposer as evidence --
+        produces a search that appears to improve and has only memorised its own
+        feedback, which no downstream metric would reveal.
+        """
+        rollouts = [
+            replace(r, slice="anchor")
+            for r in self.runner.run_many(candidate, tasks, seeds)
+        ]
         by_task: dict[TaskId, list[float]] = {}
         cost = Cost()
         for r in rollouts:
+            if not r.selectable:
+                raise ValueError(
+                    f"rollout for {r.task!r} is slice={r.slice!r} and cannot be "
+                    "used for selection"
+                )
             by_task.setdefault(r.task, []).append(r.score.value)
             cost = cost + r.cost
         scores = {t: statistics.mean(v) for t, v in by_task.items()}
         return scores, cost, rollouts
+
+    def _probe(
+        self, candidate: Candidate, tasks: Sequence[TaskId]
+    ) -> tuple[Cost, list[Rollout]]:
+        """Run probe tasks for evidence only. Returns no scores, by design.
+
+        There is no scores dict to accidentally pass to the gate. Probe exists
+        so the proposer keeps seeing failure modes the anchor slice has already
+        been optimised against -- an anchor-only loop goes blind to everything
+        it has already fixed, and then has nothing left to propose about.
+        """
+        if not tasks:
+            return Cost(), []
+        n = min(self.cfg.probe_tasks, len(tasks))
+        chosen = self.archive.rng.sample(list(tasks), n)
+        rollouts = [
+            replace(r, slice="probe")
+            for r in self.runner.run_many(candidate, chosen, self.cfg.probe_seeds)
+        ]
+        cost = Cost()
+        for r in rollouts:
+            cost = cost + r.cost
+        return cost, rollouts
 
     def _screen(
         self, child: Candidate, parent: ArchiveEntry, tasks: Sequence[TaskId]
@@ -232,10 +281,19 @@ class Search:
 
     # -- the loop ---------------------------------------------------------
     def run(
-        self, seed: Candidate, anchor_tasks: Sequence[TaskId]
+        self,
+        seed: Candidate,
+        anchor_tasks: Sequence[TaskId],
+        probe_tasks: Sequence[TaskId] = (),
     ) -> SearchResult:
         if not anchor_tasks:
             raise ValueError("anchor slice is empty; nothing to score against")
+        overlap = set(anchor_tasks) & set(probe_tasks)
+        if overlap:
+            raise ValueError(
+                f"anchor and probe slices overlap on {sorted(overlap)}; a task "
+                "cannot both be selected on and used as fresh evidence"
+            )
 
         result = SearchResult(archive=self.archive, log=self.log, best=None)
 
@@ -261,6 +319,18 @@ class Search:
             if parent is None:
                 result.notes.append("archive empty; aborting")
                 break
+
+            # (n-1) % every, not n % every: with every=1 the latter is never
+            # true, which would silently disable probing at its most aggressive
+            # setting -- the failure mode being that a knob turned all the way
+            # up does nothing at all.
+            if probe_tasks and (result.n_proposed - 1) % self.cfg.probe_every == 0:
+                probe_cost, probe_rollouts = self._probe(
+                    parent.candidate, probe_tasks
+                )
+                result.total_cost = result.total_cost + probe_cost
+                result.n_probe_rollouts += len(probe_rollouts)
+                self._rollouts.setdefault(parent.cid, []).extend(probe_rollouts)
 
             evidence = self._build_evidence(parent)
             try:

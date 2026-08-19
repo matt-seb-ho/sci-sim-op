@@ -488,27 +488,32 @@ def rule_near_miss_filenames(
         stem = _strip_variants(token.strip("_"))
         if len(stem) < MIN_STEM_LEN or stem in GENERIC_STEMS or stem in reported:
             continue
-        for candidate_stem in buckets.get(stem[:5], ()):
-            if stem == candidate_stem:
-                reported.add(stem)
-                # A single-word stem is ambiguous with the solver or physics it
-                # is named after (``TriaxialDriver`` is a deck *and* a class),
-                # so it only blocks when written as a path or a filename glob.
-                # A compound stem (``poroelastic_terzaghi``) has no such
-                # innocent reading.
-                filename_shaped = "_" in stem or _in_path_context(text, idx, end)
-                as_element = re.search(rf"<\s*{re.escape(token)}\b", text, re.I)
-                findings.append(
-                    Finding(
-                        "near_miss_filename",
-                        "error" if filename_shaped and not as_element else "warn",
-                        f"token {raw!r} is the ground-truth deck stem "
-                        f"{candidate_stem!r} with the extension omitted",
-                        _loc(path, _line_at(text, idx)),
-                    )
+        if stem in corpus.filename_stems:
+            reported.add(stem)
+            # A single-word stem is ambiguous with the solver or physics it is
+            # named after (``TriaxialDriver`` is a deck *and* a class), so it
+            # only blocks when written as a path or a filename glob. A compound
+            # stem (``poroelastic_terzaghi``) has no such innocent reading.
+            filename_shaped = "_" in stem or _in_path_context(text, idx, end)
+            as_element = re.search(rf"<\s*{re.escape(token)}\b", text, re.I)
+            findings.append(
+                Finding(
+                    "near_miss_filename",
+                    "error" if filename_shaped and not as_element else "warn",
+                    f"token {raw!r} is the ground-truth deck stem {stem!r} with "
+                    "the extension omitted",
+                    _loc(path, _line_at(text, idx)),
                 )
-                break
-            ratio = difflib.SequenceMatcher(None, stem, candidate_stem).ratio()
+            )
+            continue
+        # Best match, not first: bucket order is arbitrary, and a report that
+        # names a different sibling on every run is not actionable.
+        scored = [
+            (difflib.SequenceMatcher(None, stem, s).ratio(), s)
+            for s in buckets.get(stem[:5], ())
+        ]
+        if scored:
+            ratio, best = max(scored)
             if ratio >= cfg.near_miss_ratio:
                 reported.add(stem)
                 findings.append(
@@ -516,11 +521,10 @@ def rule_near_miss_filenames(
                         "near_miss_filename",
                         "warn",
                         f"token {raw!r} is a near miss (ratio {ratio:.2f}) for "
-                        f"ground-truth deck stem {candidate_stem!r}",
+                        f"ground-truth deck stem {best!r}",
                         _loc(path, _line_at(text, idx)),
                     )
                 )
-                break
     return _cap(findings, cfg, "near_miss_filename", path)
 
 
@@ -596,7 +600,9 @@ def rule_rare_token_overlap(
 
 _TABLE_ROW_RE = re.compile(r"^\s*\|(?P<body>.*)\|\s*$")
 _SEPARATOR_RE = re.compile(r"^[\s|:\-]+$")
-_LIST_ROW_RE = re.compile(r"^\s*[-*+]\s+\**`?(?P<key>[A-Za-z][A-Za-z0-9_]*)`?\**\s*[:→-]+\s*(?P<rest>.+)$")
+_LIST_ROW_RE = re.compile(
+    r"^\s*[-*+]\s+\**`?(?P<key>[A-Za-z][A-Za-z0-9_]*)`?\**\s*[:\u2192-]+\s*(?P<rest>.+)$"
+)
 _TASK_SHAPED_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{7,}$")
 
 
@@ -614,8 +620,10 @@ def _is_task_shaped(cell: str, corpus: GroundTruthCorpus) -> bool:
         return True
     if not _TASK_SHAPED_RE.match(cell):
         return False
-    humps = sum(1 for c in cell[1:] if c.isupper())
-    return humps >= 2
+    # One internal capital is enough: ``DruckerPrager`` is as key-shaped as
+    # ``AdvancedExampleDruckerPrager``, and requiring two humps let half the
+    # rows of a real leaked table through.
+    return any(c.isupper() for c in cell[1:])
 
 
 def rule_lookup_tables(

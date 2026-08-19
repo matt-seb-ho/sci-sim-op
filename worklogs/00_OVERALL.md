@@ -159,3 +159,77 @@ revert-on-regression but no stagnation escape) and EvoTrace's **edit-type
 taxonomy** as a diagnostic — its finding that ~30% of evolutionary edits are
 byte-identical re-introductions of deleted lines is a concrete pathology our
 decision log can detect for free.
+
+---
+
+## 2026-08-19 — session 1, integration pass 1 (W2, W3 landed)
+
+**Suite: 283 passed, 2 skipped** (the 2 skips need a real `geosx` / `lmp` binary).
+
+### Contract changes made in response to workstream feedback
+
+Both were flagged by W2 as gaps it had coded around rather than edited — the
+right call, and both were genuinely mine to fix.
+
+**`leak_pattern` could only express extensions.** OpenFOAM names artifacts by
+bare name (`controlDict`, `fvSchemes`) and LAMMPS by type prefix (`in.melt`).
+No extension list can capture either, so both simulators were overriding the
+method. `SimulatorSpec` now composes the pattern from `leaky_extensions`,
+`leaky_names`, and `leaky_prefixes`. A leak surface that silently omits a
+simulator's most common filenames is worse than no gate, because it reads as
+coverage.
+
+**`preflight()` was doing double duty.** "The binary is missing" and "this
+simulator has no scorer" are different facts with different responses: one is
+fixable by installing something, the other means a search cannot run at all.
+Split into `capabilities()` (a `SimulatorCapabilities` with a `searchable`
+property) and `preflight()` (environment), with `blockers()` returning both.
+Conflating them produces callers that degrade gracefully past a capability that
+is never coming back.
+
+**Slice discipline is now a type-level property**, from W3's observation that
+`RoundEvidence` could not distinguish anchor from probe rollouts. `Rollout` grew
+a `slice` field and a `selectable` property; `Search._evaluate` refuses to
+aggregate a non-anchor rollout; `Search._probe` returns rollouts and *no scores
+dict*, so there is nothing to accidentally hand the gate; and overlapping anchor
+and probe slices raises. The failure this prevents — selecting on data that was
+also shown to the proposer as evidence — looks exactly like progress and is
+invisible to every downstream metric.
+
+Writing the test for it immediately found a real bug: the probe cadence check
+was `n % every == 1`, which is never true when `every == 1`. Probing would have
+been silently disabled at its most aggressive setting. Fixed to
+`(n - 1) % every == 0`.
+
+### Notable findings from the workstreams
+
+- **W3:** repo3's bottleneck extractor mined *actions only* and never a single
+  tool result. That is the mechanical root of "the proposer never saw an error"
+  — it was not a truncation problem, the observations were never collected.
+  Also: `_flatten` raised on any detail blob missing a `tag`, i.e. exactly the
+  malformed ones worth diagnosing.
+- **W3:** EFC terminal feedback scores zero by construction (feedback arriving
+  after the final action cannot have been retained). Deliberate — it makes
+  "move validation inline" worth more than "improve the terminal report", which
+  is the right incentive. Requires inline validator runs to pass a step index.
+- **W3, unclosed:** EFC *validity* is measured as agent belief, not correctness.
+  A hook naming whatever file the agent just touched scores 1.0. Needs a
+  per-step oracle we do not have. Documented as a gaming hole rather than
+  papered over. **Consequence: EFC is a search signal only — acceptance stays
+  gated on score, cliffs, and cost. EFC rising while score is flat should read
+  as suspected gaming first.**
+- **W2:** repo3's variant-sibling contamination expansion globbed `*.xml` only —
+  the same `.geos` blind spot as the hygiene regex, in a second place.
+- **W2:** LAMMPS `score`/`diagnose` deliberately *raise* rather than returning a
+  placeholder. Correct: every cheap proxy there measures the wrong thing, and a
+  number that looks like a score will get optimised.
+
+### Open coordination items
+
+1. W6's mock runner must call `MockSimulator.simulate(...)`; W2 offered to
+   change the signature rather than have the runner reach into internals.
+   Resolve when W6 lands.
+2. Screening margin and subset size are still guesses; they need real score
+   variance to tune.
+3. Anchor slice still hand-picked pending W7's read on Janus's
+   coverage/boundary/fresh construction.

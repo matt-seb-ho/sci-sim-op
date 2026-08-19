@@ -12,6 +12,14 @@ from typing import Any, Literal, Mapping
 TaskId = str
 CandidateId = str
 
+#: Which evaluation slice a task belongs to. Carried on every rollout because
+#: the distinction is a correctness property, not bookkeeping: probe rollouts
+#: exist to give a proposer fresh failure modes to look at, and must never
+#: contribute to a selection decision, or the search is scoring itself on the
+#: same data it just read. Held-out is stricter still -- touched once, at the
+#: end, by the single selected candidate.
+Slice = Literal["anchor", "probe", "held_out"]
+
 Severity = Literal["error", "warn", "info"]
 
 #: Failure taxonomy, carried over from the bottleneck classifier so that
@@ -145,12 +153,23 @@ class Rollout:
     is its raw event stream; the evidence layer reads both. Keeping the paths
     rather than the contents means a rollout stays cheap to pass around and the
     expensive drill-down is done on demand.
+
+    ``slice`` travels with the rollout rather than being tracked by the caller.
+    A rollout that has been separated from its slice cannot be safely
+    aggregated, and the cost of that mistake is a search that selects on data it
+    also used as evidence -- which looks like progress and is not.
     """
+
+    @property
+    def selectable(self) -> bool:
+        """May this rollout influence a selection decision?"""
+        return self.slice == "anchor"
 
     task: TaskId
     candidate_id: CandidateId
     seed: int
     score: Score
+    slice: Slice = "anchor"
     cost: Cost = field(default_factory=Cost)
     artifacts_dir: str | None = None
     events_path: str | None = None
@@ -162,6 +181,7 @@ class Rollout:
             "task": self.task,
             "candidate_id": self.candidate_id,
             "seed": self.seed,
+            "slice": self.slice,
             "score": self.score.to_dict(),
             "cost": self.cost.to_dict(),
             "artifacts_dir": self.artifacts_dir,

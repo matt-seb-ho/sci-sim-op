@@ -289,6 +289,11 @@ class EvaluationProtocol:
                 r.task
                 for r in rollouts
                 if self.slice_of(r.task) in ("held_out", "probe")
+                # A rollout may also carry its own slice label. Both are
+                # checked, and either one is enough to reject: the label can be
+                # stale after a resumed run, and the task lists can be stale
+                # after a re-split, so agreement is not assumed.
+                or getattr(r, "slice", "anchor") in ("held_out", "probe")
             }
         )
         if offenders:

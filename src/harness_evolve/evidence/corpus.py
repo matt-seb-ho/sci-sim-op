@@ -82,7 +82,8 @@ class CorpusConfig:
 
 
 def _fmt_delta(delta: float | None) -> str:
-    return "  n/a" if delta is None else f"{delta:+.3f}"
+    """Signed delta, or ``n/a`` for a task the parent never ran."""
+    return "n/a" if delta is None else f"{delta:+.3f}"
 
 
 @dataclass
@@ -362,10 +363,15 @@ class RoundEvidence:
         return "\n\n".join(p for p in parts if p)
 
     def _render_header(self) -> str:
-        parent = self.parent_id or "(none)"
+        if self.parent_id:
+            parent = self.parent_id
+        elif any(t.parent_mean is not None for t in self.tasks.values()):
+            parent = "unnamed, per-task baseline scores supplied"
+        else:
+            parent = "none — this is a root candidate"
         return (
             f"# evidence corpus — candidate {self.candidate_id or '(unnamed)'} "
-            f"(parent {parent})"
+            f"(parent: {parent})"
         )
 
     def _render_l0(self) -> str:
@@ -391,7 +397,7 @@ class RoundEvidence:
         if deltas:
             lines.append(
                 "per-task delta vs parent: "
-                + "  ".join(f"{t.task}{_fmt_delta(t.delta)}" for t in deltas)
+                + "  ".join(f"{t.task} {_fmt_delta(t.delta)}" for t in deltas)
             )
         regressed = self.regressions()
         if regressed:

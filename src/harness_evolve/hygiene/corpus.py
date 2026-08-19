@@ -91,12 +91,23 @@ _NUM_RE = re.compile(
         (?:\d+\.?\d*|\.\d+)
         (?:\s*(?:[eEdD]\s*[-+]?\d+|
                 \\times\s*10\s*\^?\s*\{?\s*[-+]?\d+\s*\}?|
-                x\s*10\s*\^\s*[-+]?\d+))?
+                [xX\u00d7]\s*10\s*\^?\s*\{?\s*[-+]?\d+\s*\}?))?
     """,
     re.VERBOSE,
 )
 
 _SUPERSCRIPTS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
+
+#: Typographic signs NFKC leaves alone (it maps ⁻ to U+2212, not to ASCII).
+_MATH_SIGNS = str.maketrans({"\u2212": "-", "\u2013": "-", "\u2014": "-"})
+
+
+def _normalize_math(text: str) -> str:
+    """NFKC plus superscript and sign folding, so notation variants compare equal."""
+    return unicodedata.normalize("NFKC", text).translate(_SUPERSCRIPTS).translate(
+        _MATH_SIGNS
+    )
+
 
 #: Numbers this common carry no information about any particular ground truth.
 #: Suppressing them is what keeps the numeric rule from firing on every
@@ -119,15 +130,14 @@ _WORD_RE = re.compile(r"[a-z0-9_]+")
 def canonicalize_number(raw: str) -> str | None:
     """Canonicalize one numeric token, or ``None`` if it does not parse.
 
-    ``1.0e-4``, ``1E-4``, ``1.0d-4``, ``$1.0\\times10^{-4}$`` and ``1.0x10^-4``
-    all reduce to the same string. Prose adapters write ground-truth values in
-    whatever notation the trajectory used, so a comparison that is not
-    notation-blind sees almost none of them.
+    ``1.0e-4``, ``1E-4``, ``1.0d-4``, ``$1.0\\times10^{-4}$``, ``1.0x10^-4``
+    and ``1.0×10⁻⁴`` all reduce to the same string. Prose adapters write
+    ground-truth values in whatever notation the trajectory used, so a
+    comparison that is not notation-blind sees almost none of them.
     """
-    s = unicodedata.normalize("NFKC", raw).translate(_SUPERSCRIPTS)
-    s = s.strip().strip("$").strip()
+    s = _normalize_math(raw).strip().strip("$").strip()
     s = re.sub(r"\\times\s*10\s*\^?\s*\{?\s*([-+]?\d+)\s*\}?", r"e\1", s)
-    s = re.sub(r"[xX]\s*10\s*\^\s*\{?\s*([-+]?\d+)\s*\}?", r"e\1", s)
+    s = re.sub(r"[xX\u00d7]\s*10\s*\^?\s*\{?\s*([-+]?\d+)\s*\}?", r"e\1", s)
     s = re.sub(r"[DdE]", "e", s)
     s = re.sub(r"\s+", "", s)
     try:
@@ -146,7 +156,7 @@ def canonical_numerics(text: str) -> set[str]:
     step counts and mesh sizes are indistinguishable from them, and a rule that
     fires on ``100`` is a rule people route around.
     """
-    text = unicodedata.normalize("NFKC", text).translate(_SUPERSCRIPTS)
+    text = _normalize_math(text)
     out: set[str] = set()
     for m in _NUM_RE.finditer(text):
         raw = m.group(0)

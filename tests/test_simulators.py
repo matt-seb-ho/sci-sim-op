@@ -19,7 +19,6 @@ from harness_evolve.simulators import SimulatorRegistry
 from harness_evolve.simulators.lammps import (
     ATOM_DEFINITION_COMMANDS,
     LammpsSimulator,
-    ScriptModel,
     parse_script,
 )
 from harness_evolve.simulators.mock import (
@@ -28,7 +27,7 @@ from harness_evolve.simulators.mock import (
     MockDeck,
     MockSimulator,
 )
-from harness_evolve.simulators.openfoam import OpenFoamSimulator, case_root, read_case
+from harness_evolve.simulators.openfoam import OpenFoamSimulator, case_root
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
 

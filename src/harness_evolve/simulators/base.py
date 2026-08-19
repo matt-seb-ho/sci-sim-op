@@ -73,6 +73,42 @@ class Diagnosis:
         return sorted(self.section_scores.items(), key=lambda kv: kv[1])[:k]
 
 
+@dataclass(frozen=True)
+class SimulatorCapabilities:
+    """Which parts of the contract are actually implemented.
+
+    A simulator may legitimately ship without a scorer: for some interfaces
+    every cheap proxy measures the wrong thing, and a placeholder number that
+    looks like a score is worse than an honest refusal, because a search will
+    happily optimise it.
+    """
+
+    can_parse: bool = True
+    can_validate: bool = True
+    can_score: bool = True
+    can_diagnose: bool = True
+    scoring_note: str = ""
+
+    def gaps(self) -> list[str]:
+        out = []
+        for attr, label in (
+            ("can_parse", "parsing"),
+            ("can_validate", "validation"),
+            ("can_score", "scoring"),
+            ("can_diagnose", "diagnosis"),
+        ):
+            if not getattr(self, attr):
+                out.append(f"{label} is not implemented for this simulator")
+        if self.scoring_note:
+            out.append(f"scoring caveat: {self.scoring_note}")
+        return out
+
+    @property
+    def searchable(self) -> bool:
+        """Can a search actually run against this simulator?"""
+        return self.can_parse and self.can_score
+
+
 @dataclass
 class ContaminationPolicy:
     """Which files must be hidden from the agent for a given task.
@@ -98,6 +134,16 @@ class SimulatorSpec(ABC):
     #: artifact. The v1 gate hardcoded `.xml` only, which is how ground-truth
     #: `.geos` dependency filenames reached the shipped adapter.
     leaky_extensions: tuple[str, ...] = ("xml",)
+
+    #: Artifact names that carry no extension at all (OpenFOAM's ``controlDict``,
+    #: ``fvSchemes``) or carry their type as a prefix (LAMMPS' ``in.melt``).
+    #: An extension list structurally cannot express these, and a leak surface
+    #: that silently omits a simulator's most common filenames is worse than no
+    #: gate, because it reads as coverage.
+    leaky_names: tuple[str, ...] = ()
+
+    #: Prefixes that make a following token an artifact name (``in.`` -> ``in.melt``).
+    leaky_prefixes: tuple[str, ...] = ()
 
     #: Top-level structures a complete artifact is expected to define. Drives
     #: the completeness check -- the cheapest reliable adapter component.
@@ -166,19 +212,50 @@ class SimulatorSpec(ABC):
         )
 
     def leak_pattern(self) -> re.Pattern[str]:
-        """Regex matching artifact filenames that must not appear in an adapter."""
-        exts = "|".join(re.escape(e) for e in self.leaky_extensions)
-        return re.compile(rf"\b([A-Za-z0-9_][A-Za-z0-9_.\-]*\.(?:{exts}))\b")
+        """Regex matching artifact filenames that must not appear in an adapter.
 
-    # -- environment -----------------------------------------------------
+        Composed from three sources because simulators name their artifacts
+        three different ways: by extension, by a fixed bare name, and by a type
+        prefix. Overriding this method should rarely be necessary; adding to
+        :attr:`leaky_names` or :attr:`leaky_prefixes` usually suffices.
+        """
+        alts: list[str] = []
+        if self.leaky_extensions:
+            exts = "|".join(re.escape(e) for e in self.leaky_extensions)
+            alts.append(rf"[A-Za-z0-9_][A-Za-z0-9_.\-]*\.(?:{exts})")
+        if self.leaky_prefixes:
+            pre = "|".join(re.escape(p) for p in self.leaky_prefixes)
+            alts.append(rf"(?:{pre})[A-Za-z0-9_.\-]+")
+        if self.leaky_names:
+            alts.append("|".join(re.escape(n) for n in self.leaky_names))
+        if not alts:
+            return re.compile(r"(?!x)x")  # matches nothing
+        return re.compile(r"\b(" + "|".join(alts) + r")\b")
+
+    # -- capability and environment --------------------------------------
+    def capabilities(self) -> "SimulatorCapabilities":
+        """What this simulator can do *in principle*, regardless of environment.
+
+        Separate from :meth:`preflight` because the two call for different
+        responses. A missing binary is fixable by installing it; an unimplemented
+        scorer means the search cannot run here at all, and conflating them
+        produces callers that "degrade gracefully" past a capability that is
+        never coming back.
+        """
+        return SimulatorCapabilities()
+
     def preflight(self) -> list[str]:
-        """Reasons this simulator cannot be exercised in the current environment.
+        """Reasons the *environment* blocks this simulator. Empty means ready.
 
-        Empty list means ready. Returning reasons rather than raising lets the
-        caller decide whether to degrade to a cached or mock runner instead of
-        dying halfway through a search.
+        Returning reasons rather than raising lets the caller decide whether to
+        degrade to a cached or mock runner instead of dying halfway through a
+        search.
         """
         return []
+
+    def blockers(self) -> list[str]:
+        """Everything preventing a real search: capability gaps and environment."""
+        return self.capabilities().gaps() + self.preflight()
 
     def describe(self) -> str:
         return (

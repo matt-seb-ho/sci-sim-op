@@ -329,3 +329,52 @@ def test_unearned_edit_is_flagged():
     assert rec.prediction_hit_rate == 0.0
     assert rec.is_unearned
     assert search.log.unearned_edits()
+
+
+# ---------------------------------------------------------------------------
+# slice discipline
+# ---------------------------------------------------------------------------
+
+def test_probe_rollouts_never_reach_selection():
+    """Probe exists to show the proposer fresh failures, not to be scored on.
+
+    Selecting on data that was also handed to the proposer as evidence produces
+    a search that looks like it is improving and has only memorised its own
+    feedback -- a failure no downstream metric surfaces.
+    """
+    runner = FakeRunner()
+    search = Search(
+        runner,
+        ScriptedProposer(script=[("memory", "- general advice\n- alpha handling",
+                                  {"targets_category": "missing_block"})]),
+        config=SearchConfig(budget_candidates=1, seeds=(1,), screen_tasks=0,
+                            probe_tasks=1, probe_every=1),
+    )
+    result = search.run(make_seed(), TASKS[:2], probe_tasks=TASKS[2:])
+
+    assert result.n_probe_rollouts == 1
+    for entry in search.archive.entries:
+        # Only anchor tasks may carry scores that a gate can read.
+        assert set(entry.scores) <= set(TASKS[:2])
+
+
+def test_overlapping_slices_are_refused():
+    search = Search(FakeRunner(), ScriptedProposer(script=[]))
+    with pytest.raises(ValueError, match="overlap"):
+        search.run(make_seed(), TASKS[:2], probe_tasks=TASKS[1:3])
+
+
+def test_a_non_anchor_rollout_cannot_be_scored():
+    """Belt-and-braces: even a misbehaving runner cannot smuggle one in."""
+    from dataclasses import replace as _replace
+
+    class MislabelingRunner(FakeRunner):
+        def run(self, candidate, task, seed=1):
+            return _replace(super().run(candidate, task, seed), slice="held_out")
+
+    search = Search(MislabelingRunner(), ScriptedProposer(script=[]))
+    # _evaluate re-tags to "anchor", so the guard is not reachable through the
+    # normal path -- assert the guard itself rather than pretending otherwise.
+    from harness_evolve.types import Rollout, Score
+    bad = Rollout("t", "c", 1, Score("t", 0.9), slice="probe")
+    assert not bad.selectable

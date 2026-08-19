@@ -33,7 +33,7 @@ import random
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from harness_evolve.simulators.base import (
     Artifact,
