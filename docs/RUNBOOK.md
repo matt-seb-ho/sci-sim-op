@@ -140,6 +140,21 @@ cannot be adjusted after seeing them.
 
 ---
 
+## A consequence of the seed count that is not obvious
+
+The noise band is derived from the **sample** across-seed SD. At n=2 seeds that
+is √2 ≈ 1.41× the population SD, so the band is ~41% wider than it would
+otherwise be — more ties, fewer wins, a more conservative verdict.
+
+That is the right direction (conservative where the evidence is thinnest) but it
+is a consequence of an estimator choice rather than something anyone selected.
+It means **the seed count moves the verdict through two channels**: directly, by
+how much noise there is, and indirectly, by how wide the band estimated from it
+turns out to be. Going from 2 to 3 search seeds narrows the band by ~18% on top
+of the direct variance reduction.
+
+Pinned in `tests/test_stats_verification.py` so it cannot drift silently.
+
 ## What a good outcome looks like
 
 Not "the search won". These, in order:
