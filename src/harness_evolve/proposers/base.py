@@ -3,11 +3,38 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence
 
 if TYPE_CHECKING:  # pragma: no cover
     from harness_evolve.core.candidate import Candidate
     from harness_evolve.evidence.corpus import RoundEvidence
+
+
+@dataclass(frozen=True)
+class Demonstration:
+    """One expert reference trajectory for a task.
+
+    Deliberately not a full trajectory dump. What a proposer can act on is the
+    *strategy* an expert used and the artifact they produced -- which files they
+    consulted, in what order, what they reported finding hard. A raw event
+    stream buries that.
+    """
+
+    task: str
+    summary: str
+    artifact_excerpt: str = ""
+    sources_consulted: tuple[str, ...] = ()
+    notes: str = ""
+    provenance: str = ""
+
+    def render(self, max_chars: int = 1200) -> str:
+        parts = [f"### expert demonstration -- {self.task}", self.summary]
+        if self.sources_consulted:
+            parts.append("consulted: " + ", ".join(self.sources_consulted[:8]))
+        if self.notes:
+            parts.append(f"expert notes: {self.notes}")
+        return "\n".join(parts)[:max_chars]
 
 
 class ProposerError(RuntimeError):
@@ -29,6 +56,7 @@ class Proposer(ABC):
         parent: "Candidate",
         evidence: "RoundEvidence",
         history: Sequence[dict[str, Any]] = (),
+        demonstrations: Sequence["Demonstration"] = (),
     ) -> "Candidate":
         """Return a child of ``parent``.
 
@@ -41,4 +69,12 @@ class Proposer(ABC):
            how much, verified next round;
         3. **budgets respected** -- a proposer that can only add is how an
            always-on artifact grows 12x in three rounds.
+
+        ``demonstrations`` is optional expert reference experience. It exists
+        because self-rollout harness evolution is reported to break down under
+        sparse, high-variance reward where failures are hard to attribute
+        (arXiv:2605.24539) -- which describes this task more accurately than it
+        describes the benchmarks that literature usually runs on. Expert
+        trajectories give the proposer something to diagnose against when the
+        reward signal alone is too noisy to localize a failure.
         """
