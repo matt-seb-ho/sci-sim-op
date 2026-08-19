@@ -24,6 +24,7 @@ python3 scripts/evolve.py preflight   # what would make a real run meaningless
 | the first result, and why its two views disagree | [`docs/EXPERIMENT_01_proposer_control.md`](docs/EXPERIMENT_01_proposer_control.md) |
 | what the evaluation protocol refuses, and why | [`docs/EXPERIMENT_02_protocol_dryrun.md`](docs/EXPERIMENT_02_protocol_dryrun.md) |
 | the sequence for a first real run | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
+| what porting to a new simulator actually costs | [`docs/ADDING_A_SIMULATOR.md`](docs/ADDING_A_SIMULATOR.md) |
 | how any of this was decided | [`worklogs/`](worklogs/) |
 
 ## The five facts that determine the design
@@ -57,7 +58,10 @@ Everything plugs into one of these. Nothing else may be simulator-, harness-, or
 model-specific.
 
 - **`SimulatorSpec`** — parse, validate, score, diagnose, contamination-block.
-  Adding a simulator is implementing one class.
+  Measured across four implementations, the class itself is a flat 150–300 lines
+  whatever the simulator; the variable cost is entirely the scoring function
+  (GEOS needs 905 lines for TreeSim, OpenFOAM 115 because it declines to score).
+  See [`docs/ADDING_A_SIMULATOR.md`](docs/ADDING_A_SIMULATOR.md).
 - **`RolloutRunner`** — real / recording / cached-replay / mock, behind one
   interface. The recording runner makes a multi-hour search resumable after a
   crash and turns its rollouts into a corpus every later statistic can be
