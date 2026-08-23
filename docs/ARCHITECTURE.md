@@ -92,6 +92,10 @@ hygiene/      contamination gate: filenames, path components, task-id tables,
               structural fingerprints, rare-token overlap, lookup-table shape
 proposers/    base protocol, bounded edits, LLM proposer, model backends,
               expert demonstrations, scripted + random controls
+evolvers/     the evolution strategy itself, as a pluggable arm: the loop above
+              is one implementation, alongside SkillOpt, AHE-style component
+              cycling, and a random-search control, run at one enforced rollout
+              budget by a comparison that refuses unmatched spend
 evaluation/   compute-matched baselines, paired and tail statistics, slice
               construction, budget planning, protocol enforcement, reports
 runners/      base protocol, subprocess / recording / cached / mock

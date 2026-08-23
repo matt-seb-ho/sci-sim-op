@@ -934,3 +934,101 @@ count matches the registry, and the README may not hardcode a test count at all.
 The checks are deliberately narrow — mechanically verifiable claims only. A doc
 test that tried to police meaning would fail constantly and be deleted; one that
 catches a dead link and a missing module is cheap enough to survive.
+
+---
+
+## 2026-08-23 — session 2: the review, and four critical bugs
+
+**Suite: 523 passed, 2 skipped.** An independent review
+(`docs/REVIEW_2026-08-23_infra.md`, 44 findings, 25 confirmed with
+reproductions) found four things that would each have invalidated a real run.
+All four are verified and fixed; the review is the most valuable thing produced
+in this project so far.
+
+### F1 — the claimed contribution had no input channel
+
+No runner ever called `spec.validate`. `Rollout.validator_events` came only from
+the stop hook's own decision log, which records *that* a deck failed and not the
+valid-attribute table the simulator printed alongside. So `ConstraintLedger`
+never saw a directive in the real path.
+
+**The failure mode is what makes this the worst bug in the set.** An empty
+directive set renders as `0% naming an action space` — byte-identical to the
+honest signal for "this validator only emits verdicts", which the runbook
+explicitly tells the reader to trust. A broken channel and a real null were
+indistinguishable.
+
+Fixed by running the simulator's validator directly in
+`SubprocessRunner.collect_validator_output` and tagging every event with its
+`source`, so a channel that produced nothing is now distinguishable from a
+validator that had nothing to say. A simulator without a validator records
+`status="no_validator"` rather than silence.
+
+### F2 — the statistics could not tell a crashed scorer from a bad deck
+
+`evaluation/stats.py` never read `Score.status`. The status vocabulary already
+distinguished agent failures (`empty_workspace`, `parse_error`) from
+infrastructure failures (`scorer_error`, `missing_ground_truth`), and the module
+scored both as 0.0.
+
+The review demonstrated that two arms differing only by a couple of crashed
+baseline runs reproduce **this project's exact expected headline** — a small mean
+gain carried by two rescues — out of no adapter effect at all. Manufacturing our
+own predicted result from an infrastructure fault is precisely the shape of
+failure that made the predecessor system worthless.
+
+`ArmScores.from_rollouts` now **refuses by default**, naming the affected tasks,
+with `drop` and `zero` available for callers who have established what the
+failure was. Agent failures still count as zeros — that is the whole point of
+failures-as-zero and must not change.
+
+### F3 — the gate clause I added last session had no noise tolerance
+
+I added the cumulative-drift-vs-root clause after the integration test showed a
+lineage walking reliability downhill. I gave the per-step cliff test and the
+zero clause a noise tolerance and **did not give one to the clause I added**, so
+it compared seed *means* — exactly the mean-based cliff test the earlier fix was
+supposed to have removed.
+
+The consequence is worse than a false rejection: it rejects genuine tail rescues,
+which is the effect the search exists to find, and it manufactures the
+pre-registered "search returns its seed" null **for the wrong reason**. A null
+that looks confirmed but was produced by a broken gate is worse than no result.
+
+Fixed; the root clause now uses the same `_is_noise` / `_zero_is_noise`
+tolerance, and the zero count vs root compares rates rather than incidences.
+
+### F4 — content addressing included provenance
+
+`Candidate.cid` hashed `Manifest.to_toml()`, which carries a `[meta]` block
+naming the parent and generation. Two byte-identical adapters reached by
+different routes therefore hashed differently, which is not content addressing.
+
+Two consequences: the rollout cache missed on every revert, and reverts are
+common — evolutionary search re-introduces previously deleted content at around
+30% of edits (arXiv:2605.20086). At 5–7 hours per full evaluation, paying again
+for an answer already on disk is the most expensive possible bug of this shape.
+
+`Manifest.content_toml()` now serializes behaviour without history; `to_toml()`
+is unchanged for persistence.
+
+### A test that only ever passed by luck
+
+Fixing F4 moved content hashes and flipped
+`test_zero_termination_produces_an_unscorable_workspace`. Investigating showed
+the test was asserting a *certainty* against an effective probability near 0.3 —
+the stop-policy guard suppresses most of the configured zero rate — so it had
+been passing on the draw. Now deterministic by construction
+(`guard_zero_reduction=0.0`) and verified across three `PYTHONHASHSEED` values.
+
+Second time this session that a hash-derived fixture produced a
+non-deterministic test. Worth treating as a pattern rather than two incidents.
+
+### Still open from the review
+
+25 confirmed findings; four are fixed. The rest are recorded in
+`docs/REVIEW_2026-08-23_infra.md`, including: three of four advertised free
+gates not wired into `Search`; the GEOS directive regexes dropping real
+validator output; runtime and hygiene contamination lists having already
+drifted; and the wall-clock estimate quoted in four documents dividing by
+`workers=4` when nothing is concurrent — **62–146 hours, not 16–37**.

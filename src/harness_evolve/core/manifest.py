@@ -289,12 +289,30 @@ class Manifest:
         return self.component_for_path(rel_path) is not None
 
     # -- serialization ---------------------------------------------------
+    def content_toml(self) -> str:
+        """Everything that defines behaviour, and nothing that records history.
+
+        Used for content addressing. Two adapters that would behave identically
+        must serialize identically here, however each was arrived at.
+        """
+        return self._render(include_meta=False)
+
     def to_toml(self) -> str:
+        return self._render(include_meta=True)
+
+    def _render(self, *, include_meta: bool) -> str:
+        if not include_meta:
+            return "\n".join(self._component_lines())
         lines = ["[meta]"]
         if self.parent:
             lines.append(f'parent = "{self.parent}"')
         lines.append(f"generation = {self.generation}")
         lines.append("")
+        lines += self._component_lines()
+        return "\n".join(lines)
+
+    def _component_lines(self) -> list[str]:
+        lines: list[str] = []
         for name, spec in self.components.items():
             lines.append(f"[components.{name}]")
             lines.append(f'kind   = "{spec.kind}"')
@@ -311,4 +329,4 @@ class Manifest:
                 checks = ", ".join(f'"{c}"' for c in sp.checks)
                 lines.append(f"checks = [{checks}]")
             lines.append("")
-        return "\n".join(lines)
+        return lines

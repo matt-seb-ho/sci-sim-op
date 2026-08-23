@@ -223,14 +223,34 @@ class RegressionGate:
                 worst_root = root_deltas[worst_root_task]
                 metrics["worst_delta_vs_root"] = worst_root
                 if worst_root < -self.max_cumulative_regression:
-                    reasons.append(
-                        f"cumulative regression vs seed on {worst_root_task}: "
-                        f"{worst_root:+.3f} "
-                        f"(limit -{self.max_cumulative_regression:.3f})"
-                    )
+                    # The same noise tolerance the per-step cliff test gets. It
+                    # was missing here, and the omission was not cosmetic: this
+                    # clause compared seed *means*, so a single unlucky rollout
+                    # anywhere in the lineage rejected candidates that were
+                    # behaviourally identical to accepted ones -- and rejected
+                    # genuine tail rescues, which is precisely the effect the
+                    # search exists to find. A gate that manufactures the
+                    # pre-registered null for the wrong reason is worse than no
+                    # gate, because the null then looks confirmed.
+                    if self._is_noise(worst_root_task, child_by_seed, root_by_seed):
+                        metrics.setdefault("tolerated_as_noise", []).append(
+                            f"{worst_root_task} (vs root)"
+                        )
+                    else:
+                        reasons.append(
+                            f"cumulative regression vs seed on {worst_root_task}: "
+                            f"{worst_root:+.3f} "
+                            f"(limit -{self.max_cumulative_regression:.3f})"
+                        )
 
+                # Counted on the rate, not on a single draw, for the same
+                # reason the per-step clause is: zero-score terminations are
+                # stochastic here by nature, so an incidence count at n=2 reads
+                # ordinary sampling as a reliability regression.
                 child_root_zeros = sum(
-                    1 for t in root_common if child_scores[t] <= 1e-9
+                    1 for t in root_common
+                    if child_scores[t] <= 1e-9
+                    and not self._zero_is_noise(t, child_by_seed, root_by_seed)
                 )
                 root_zeros = sum(
                     1 for t in root_common if root_scores[t] <= 1e-9

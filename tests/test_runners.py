@@ -287,7 +287,14 @@ def test_stop_policy_guard_shrinks_the_tail(tmp_path: Path) -> None:
 
 def test_zero_termination_produces_an_unscorable_workspace(tmp_path: Path) -> None:
     spec = FakeSpec()
-    runner = MockRunner(spec, root=tmp_path, world=MockWorld(zero_rate=1.0))
+    # guard_zero_reduction=0 so the assertion is a certainty rather than a
+    # draw. A guarded candidate at zero_rate=1.0 has an *effective* rate near
+    # 0.3, so asserting a zero against it passed only by luck of the content
+    # hash — and stopped passing the moment an unrelated change moved that hash.
+    runner = MockRunner(
+        spec, root=tmp_path,
+        world=MockWorld(zero_rate=1.0, guard_zero_reduction=0.0),
+    )
     rollout = runner.run(make_candidate(), "t1", seed=1)
 
     assert rollout.score.is_zero

@@ -159,11 +159,18 @@ class SubprocessRunner(RolloutRunner):
         *,
         command_runner: CommandRunner | None = None,
         python_executable: str | None = None,
+        capture_validator_output: bool = True,
     ) -> None:
         self.spec = spec
         self.config = config
         self._run_command: CommandRunner = command_runner or run_command
         self.python_executable = python_executable or sys.executable
+        # Costs one validator subprocess per rollout (~2-3s against a run
+        # measured in minutes) and is the only channel through which the
+        # simulator's own error text -- the valid-attribute tables that
+        # constraint derivation consumes -- reaches the corpus. Off only when a
+        # caller has a reason.
+        self.capture_validator_output = capture_validator_output
 
     @property
     def capabilities(self) -> RunnerCapabilities:
@@ -381,19 +388,74 @@ class SubprocessRunner(RolloutRunner):
         return cost
 
     def collect_validator_events(self, result_dir: Path) -> list[dict[str, Any]]:
-        """Stop-hook decisions, as ``verify_outputs.py`` logged them."""
-        path = Path(result_dir) / ".verify_hook_events.jsonl"
-        if not path.is_file():
-            return []
+        """Everything the validator said about this workspace.
+
+        Two sources, and both are needed.
+
+        The stop hook logs its own *decisions* -- blocked or allowed, and why --
+        which is what the stop-policy search reasons over. But a decision is a
+        verdict: it records that a deck failed without recording the table of
+        legal attributes the simulator printed alongside. That table is the
+        input to constraint derivation, and reading only the hook log silently
+        starves it.
+
+        The failure was invisible because its symptom is indistinguishable from
+        the honest one: an empty directive set renders as "0% naming an action
+        space", which is exactly what a verdict-only validator should produce
+        and exactly what the runbook says to trust. So the simulator's validator
+        is run here directly, and the two sources are tagged so the difference
+        is recoverable downstream.
+        """
+        result_dir = Path(result_dir)
         out: list[dict[str, Any]] = []
-        for line in path.read_text(errors="replace").splitlines():
-            if not line.strip():
-                continue
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
+
+        path = result_dir / ".verify_hook_events.jsonl"
+        if path.is_file():
+            for line in path.read_text(errors="replace").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event.setdefault("source", "stop_hook")
+                out.append(event)
+
+        out.extend(self.collect_validator_output(result_dir))
         return out
+
+    def collect_validator_output(self, result_dir: Path) -> list[dict[str, Any]]:
+        """Run the simulator's own validator and keep what it said, verbatim.
+
+        Separated from the hook log so a caller can disable it (it costs a
+        subprocess per rollout) without losing the hook decisions, and so its
+        absence is attributable.
+        """
+        if not self.capture_validator_output:
+            return []
+        workspace = Path(result_dir) / "inputs"
+        if not workspace.is_dir():
+            return []
+        try:
+            artifact = self.spec.parse(workspace)
+            findings = self.spec.validate(artifact, workspace)
+        except NotImplementedError:
+            # A simulator without a validator is a real configuration, not a
+            # fault. Recorded as such so downstream can tell it from a channel
+            # that broke.
+            return [{"source": "simulator", "status": "no_validator"}]
+        except Exception as exc:  # noqa: BLE001
+            return [{
+                "source": "simulator", "status": "validator_error",
+                "message": f"{type(exc).__name__}: {exc}",
+            }]
+        return [{
+            "source": "simulator",
+            "severity": f.severity,
+            "message": f.message,
+            "location": f.location,
+            "validator_output": f.message,
+        } for f in findings]
 
     @staticmethod
     def _error_summary(proc: CommandResult) -> str:

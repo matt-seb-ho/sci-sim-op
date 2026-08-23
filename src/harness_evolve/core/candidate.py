@@ -106,8 +106,20 @@ class Candidate:
     # -- identity --------------------------------------------------------
     @property
     def cid(self) -> str:
+        """Content address. Deliberately excludes provenance.
+
+        ``Manifest.to_toml()`` carries a ``[meta]`` block naming the parent and
+        generation, so hashing it would make two byte-identical adapters reached
+        by different routes hash differently -- which is not content addressing,
+        and breaks the two things the identity exists for. The rollout cache
+        would miss on every revert, and revert is common: evolutionary search
+        re-introduces previously deleted content at a rate around 30% of edits
+        (arXiv:2605.20086). At roughly 5-7 hours per full evaluation, paying
+        again for an answer already on disk is the single most expensive
+        possible bug of this shape.
+        """
         h = hashlib.sha256()
-        h.update(self.manifest.to_toml().encode())
+        h.update(self.manifest.content_toml().encode())
         for path in sorted(self.files):
             h.update(path.encode())
             h.update(b"\0")

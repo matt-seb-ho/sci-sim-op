@@ -107,6 +107,9 @@ src/harness_evolve/
   hygiene/      contamination gate — 11 rules, blocking, run before any rollout
   proposers/    bounded edits, LLM proposer, model backends, demonstrations,
                 scripted + random controls
+  evolvers/     evolution strategy as a pluggable arm — gated search, SkillOpt,
+                AHE-style component cycling, a random-search control, and a
+                comparison that refuses unmatched budgets
   evaluation/   compute-matched baselines, paired statistics, slice construction,
                 budget planning, protocol enforcement, reports
   runners/      mock / cached / recording (resume) / subprocess

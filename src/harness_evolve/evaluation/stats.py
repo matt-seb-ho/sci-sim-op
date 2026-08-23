@@ -174,16 +174,69 @@ class ArmScores:
                 raise ValueError(f"arm {self.label!r}: task {task!r} has no scores")
 
     @classmethod
-    def from_rollouts(cls, label: str, rollouts: Iterable[Rollout]) -> "ArmScores":
-        """Collect rollouts into an arm.
+    def from_rollouts(
+        cls,
+        label: str,
+        rollouts: Iterable[Rollout],
+        *,
+        on_infrastructure_failure: str = "raise",
+    ) -> "ArmScores":
+        """Collect rollouts into an arm, separating the two kinds of zero.
 
-        Rollouts carry ``Score.value`` already under the failures-as-zero
-        convention, so nothing is filtered here: dropping errored rollouts would
-        turn a reliability difference into a missing-data difference.
+        Agent failures stay: a run that produced an empty or unparseable
+        workspace is a 0.0 under failures-as-zero, and dropping those would turn
+        a reliability difference into a missing-data difference. That is the
+        whole point of the convention.
+
+        **Infrastructure failures are not results and are refused by default.**
+        A crashed scorer or an absent ground-truth directory says nothing about
+        the adapter, and scoring it 0.0 quietly manufactures the finding this
+        project expects to see. ``on_infrastructure_failure`` accepts:
+
+        * ``"raise"`` (default) -- stop, and name the tasks. If the data is
+          broken the right response is to fix the data, not to average over it.
+        * ``"drop"`` -- exclude those rollouts and carry on with fewer seeds.
+          Legitimate when a handful of runs died for a known reason, and the
+          reduced seed count is then visible in the arm.
+        * ``"zero"`` -- the old behaviour. Only when a caller has established
+          that the failure really was the agent's.
         """
+        if on_infrastructure_failure not in ("raise", "drop", "zero"):
+            raise ValueError(
+                f"unknown policy {on_infrastructure_failure!r}; "
+                "expected raise, drop, or zero"
+            )
         acc: dict[TaskId, list[float]] = {}
+        broken: dict[TaskId, list[str]] = {}
         for r in rollouts:
+            status = (r.score.status or "").strip().lower()
+            if status in INFRASTRUCTURE_FAILURE_STATUSES:
+                broken.setdefault(r.task, []).append(status)
+                if on_infrastructure_failure == "drop":
+                    continue
+                if on_infrastructure_failure == "raise":
+                    continue
             acc.setdefault(r.task, []).append(r.score.value)
+
+        if broken and on_infrastructure_failure == "raise":
+            detail = ", ".join(
+                f"{t} ({', '.join(sorted(set(s)))})" for t, s in sorted(broken.items())
+            )
+            raise InfrastructureFailure(
+                f"arm {label!r} contains {sum(len(v) for v in broken.values())} "
+                f"rollout(s) whose *infrastructure* failed, not whose agent did: "
+                f"{detail}. Scoring these as 0.0 would attribute our own fault to "
+                "the adapter and can manufacture a gain out of nothing. Fix the "
+                "data, or pass on_infrastructure_failure='drop' to proceed with "
+                "fewer seeds."
+            )
+
+        empty = sorted(t for t in broken if not acc.get(t))
+        if empty:
+            raise InfrastructureFailure(
+                f"arm {label!r}: task(s) {empty} have no usable rollouts left "
+                "after removing infrastructure failures"
+            )
         return cls(label=label, per_task={t: tuple(v) for t, v in acc.items()})
 
     @property
@@ -212,6 +265,33 @@ class ArmScores:
         return ArmScores(
             label=self.label, per_task={t: self.per_task[t] for t in tasks}
         )
+
+
+#: Statuses meaning *the agent* failed. These are genuinely 0.0 under
+#: failures-as-zero: the run completed and produced nothing usable, which is
+#: exactly the outcome the adapters exist to prevent and must be counted.
+AGENT_FAILURE_STATUSES: frozenset[str] = frozenset(
+    {"empty_workspace", "no_workspace", "parse_error", "failed_no_outputs",
+     "timeout", "missing_eval"}
+)
+
+#: Statuses meaning *our infrastructure* failed. These are missing data, not
+#: zeros, and conflating them is this project's worst available failure.
+#:
+#: A crashed scorer scored as 0.0 is indistinguishable from a deck the agent
+#: genuinely botched. Two arms differing only in a couple of crashed baseline
+#: runs then reproduce the exact headline this work expects to find -- a small
+#: mean gain carried by two "rescues" -- out of no adapter effect whatsoever.
+#: Producing our own expected result from an infrastructure fault is the
+#: precise shape of the failure that made the predecessor system worthless.
+INFRASTRUCTURE_FAILURE_STATUSES: frozenset[str] = frozenset(
+    {"scorer_error", "missing_ground_truth", "no_ground_truth", "error",
+     "unreadable_eval"}
+)
+
+
+class InfrastructureFailure(ValueError):
+    """Raised when rollouts carry infrastructure faults rather than results."""
 
 
 @dataclass(frozen=True)

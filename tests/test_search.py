@@ -491,3 +491,41 @@ def test_ordinary_progress_is_not_blocked_by_the_root_guard():
         root_scores={"a": 0.80, "b": 0.85},
     )
     assert r.accepted, r.reason
+
+
+def test_the_root_guard_tolerates_noise_like_the_per_step_guard():
+    """The cumulative clause compared seed means with no noise tolerance, so a
+    single unlucky rollout anywhere in a lineage rejected candidates that were
+    behaviourally identical to accepted ones — including genuine tail rescues,
+    which is the effect the search exists to find."""
+    from harness_evolve.core.acceptance import RegressionGate
+
+    gate = RegressionGate()
+    root = {"a": 0.90, "b": 0.90}
+    parent = {"a": 0.90, "b": 0.88}
+    # Child is better than root at its best seed on b; one unlucky draw dragged
+    # the mean well below the cumulative limit.
+    child = {"a": 0.95, "b": 0.45}
+
+    verdict = gate.evaluate(
+        child, parent, root_scores=root,
+        child_by_seed={"a": [0.95, 0.95], "b": [0.92, 0.0]},
+        parent_by_seed={"a": [0.90, 0.90], "b": [0.88, 0.88]},
+        root_by_seed={"a": [0.90, 0.90], "b": [0.90, 0.90]},
+    )
+    assert verdict.accepted, verdict.reason
+    assert any("vs root" in x for x in verdict.metrics.get("tolerated_as_noise", []))
+
+
+def test_the_root_guard_still_catches_a_real_cumulative_regression():
+    from harness_evolve.core.acceptance import RegressionGate
+
+    verdict = RegressionGate().evaluate(
+        {"a": 0.95, "b": 0.45}, {"a": 0.90, "b": 0.50},
+        root_scores={"a": 0.90, "b": 0.90},
+        child_by_seed={"a": [0.95, 0.95], "b": [0.45, 0.45]},
+        parent_by_seed={"a": [0.90, 0.90], "b": [0.50, 0.50]},
+        root_by_seed={"a": [0.90, 0.90], "b": [0.90, 0.90]},
+    )
+    assert not verdict.accepted
+    assert "cumulative regression vs seed" in verdict.reason
