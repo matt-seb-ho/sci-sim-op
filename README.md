@@ -21,6 +21,7 @@ python3 scripts/evolve.py plan        # search budgets the baselines can match
 | how the pieces fit together | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | why the previous system failed, and what each design decision answers | [`docs/WHY_V1_FAILED.md`](docs/WHY_V1_FAILED.md) |
 | what the literature actually says as of Aug 2026 (60 verified papers) | [`docs/LITERATURE_2026-08.md`](docs/LITERATURE_2026-08.md) |
+| the strongest published threat to this premise, and our answer | [`docs/NOTES_2607.12227.md`](docs/NOTES_2607.12227.md) |
 | what must change elsewhere before a real run means anything | [`docs/INTEGRATION_REQUIREMENTS.md`](docs/INTEGRATION_REQUIREMENTS.md) |
 | the first result, and why its two views disagree | [`docs/EXPERIMENT_01_proposer_control.md`](docs/EXPERIMENT_01_proposer_control.md) |
 | what the evaluation protocol refuses, and why | [`docs/EXPERIMENT_02_protocol_dryrun.md`](docs/EXPERIMENT_02_protocol_dryrun.md) |

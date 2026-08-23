@@ -301,3 +301,96 @@ def test_a_verdict_only_verifier_reports_zero_actionable():
     assert ledger.actionable_fraction == 0.0
     assert ledger.constraints() == []
     assert "0% naming an action space" in ledger.summary()
+
+
+def test_constraints_are_derivable_from_a_corpus_at_zero_additional_cost(tmp_path):
+    """The mechanism that is immune to the matched-budget critique.
+
+    arXiv:2607.12227 shows harness evolution failing to beat task-level search
+    under a matched rollout budget, because evolution *spends rollouts to
+    search*. A mechanism that spends none is not subject to that comparison: at
+    any matched budget it is strictly additive to whatever the baseline does.
+
+    Here the corpus is produced by a baseline run — rollouts one must spend
+    anyway to have a baseline — and the improvement is extracted from validator
+    output that came along for free.
+    """
+    from harness_evolve.core.candidate import Candidate
+    from harness_evolve.core.manifest import ComponentSpec, Manifest, StopPolicy
+    from harness_evolve.evidence.directives import ConstraintLedger
+    from harness_evolve.runners.base import RolloutRunner, RunnerCapabilities
+    from harness_evolve.runners.recording import RecordingRunner
+    from harness_evolve.types import Cost, Rollout, Score
+
+    # The two failure modes the prior work named as untouched by schema
+    # validation: a substituted stabilization name and a hallucinated attribute.
+    COMPLAINTS = [
+        "Error: The tag 'TPFAstabilization' is invalid within Solvers. "
+        "All available tags are: {contactStabilization, SinglePhaseFVM}\n",
+        "Error: XML Node Solvers/SinglePhasePoromechanics contains unused "
+        "attribute 'gravityVector'. Valid attributes are:\n"
+        "  cflFactor, discretization, name, targetRegions\n",
+    ]
+
+    class BaselineRunner(RolloutRunner):
+        """A perfectly ordinary run that happens to log what the validator said."""
+
+        def __init__(self) -> None:
+            self.n = 0
+
+        @property
+        def capabilities(self) -> RunnerCapabilities:
+            return RunnerCapabilities(deterministic=True)
+
+        def run(self, candidate, task, seed=1):
+            self.n += 1
+            return Rollout(
+                task=task, candidate_id=candidate.cid, seed=seed,
+                score=Score(task, 0.6), cost=Cost(tool_calls=40.0),
+                validator_events=[{"validator_output": COMPLAINTS[self.n % 2]}],
+            )
+
+    manifest = Manifest(
+        components={
+            "primer": ComponentSpec("primer", "prose", path="PRIMER.md",
+                                    budget_tokens=200),
+            "constraints": ComponentSpec("constraints", "checked",
+                                         path="memory/constraints.md",
+                                         budget_tokens=400),
+            "stop_policy": ComponentSpec("stop_policy", "config"),
+        },
+        stop_policy=StopPolicy(checks=("parse",)),
+    )
+    seed = Candidate(manifest=manifest,
+                     files={"PRIMER.md": "author a valid deck",
+                            "memory/constraints.md": ""})
+
+    runner = BaselineRunner()
+    recorder = RecordingRunner(runner, tmp_path / "rollouts.jsonl")
+    for task in ("t0", "t1", "t2", "t3"):
+        for s in (1, 2):
+            recorder.run(seed, task, s)
+    baseline_spend = runner.n
+    assert baseline_spend == 8
+
+    # Everything below is CPU only. Nothing executes.
+    ledger = ConstraintLedger(min_support=2)
+    ledger.observe([ev for r in recorder.as_cached()._records.values()
+                    for ev in r.validator_events])
+    constraints = ledger.constraints()
+
+    assert ledger.actionable_fraction == 1.0
+    assert len(constraints) == 2
+    kinds = {c.entry["kind"] for c in constraints}
+    assert kinds == {"forbid_element", "forbid_attr"}
+
+    child = seed.with_edits(
+        {"memory/constraints.md": "\n".join(c.prose for c in constraints)}
+    )
+    child.validate()
+    assert child.cid != seed.cid
+
+    # The whole point: the improvement cost nothing beyond the baseline.
+    assert runner.n == baseline_spend, (
+        "deriving constraints must not execute a single additional rollout"
+    )
