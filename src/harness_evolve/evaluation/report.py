@@ -21,9 +21,11 @@ from dataclasses import dataclass, field
 from typing import Literal, Mapping, Sequence
 
 from harness_evolve.core.candidate import Candidate
+from harness_evolve.evaluation.amortization import AmortizationAnalysis
 from harness_evolve.evaluation.baselines import BudgetLedger, BudgetPlan
 from harness_evolve.evaluation.protocol import EvaluationProtocol
 from harness_evolve.evaluation.stats import Comparison
+from harness_evolve.evaluation.zero_marginal import ZeroMarginalReport
 
 __all__ = [
     "ArmConfig",
@@ -375,6 +377,16 @@ class EvaluationReport:
     slice_name: str = "held_out"
     selector_gaps: Mapping[str, float] = field(default_factory=dict)
     caveats: tuple[str, ...] = ()
+    #: Amortization of the one-time search cost against a recurring test-time
+    #: scaling cost. Rendered *after* the verdict and suppressed when the
+    #: verdict is `fails`, so it can only ever be read as an addition to a
+    #: comparison that was passed, never as an escape from one that was not.
+    amortization: AmortizationAnalysis | None = None
+    #: The share of the measured gain carried by mechanisms that spent no
+    #: rollouts of their own. Rendered unconditionally, including when it is
+    #: zero, because a zero here is the honest answer for a simulator whose
+    #: validator emits verdicts rather than legal action spaces.
+    zero_marginal: ZeroMarginalReport | None = None
 
     # -- pieces ----------------------------------------------------------
     def verdict(self) -> Verdict:
@@ -531,6 +543,59 @@ class EvaluationReport:
             ]
         return "\n".join(lines)
 
+    def _amortization_section(self, verdict: Verdict) -> str:
+        """Amortization, and the one condition under which it may not be shown.
+
+        A matched-budget failure is a failure. Test-time scaling is a recurring
+        cost and an artifact is a one-time cost, but that asymmetry only ever
+        answers "which is cheaper for the same result" -- it has nothing to say
+        about a system that did not deliver the same result. So when the verdict
+        is ``fails`` this section prints the failure and no crossover, rather
+        than an argument that the losing system is at least cheap.
+        """
+        lines = ["## Amortization: when does the one-time search cost pay for itself?", ""]
+        if verdict.outcome == "fails":
+            lines += [
+                f"**Not applicable: the verdict is `{verdict.outcome}`.** "
+                + OUTCOME_BLURB[verdict.outcome],
+                "",
+                "No crossover is computed. Amortization compares the cost of two "
+                "ways of reaching the same quality; a system that a "
+                "compute-matched baseline matched or beat has not reached it, and "
+                "a cheaper route to a worse result is not a result.",
+            ]
+            return "\n".join(lines)
+        if self.amortization is None:
+            lines += [
+                "No amortization analysis supplied. The matched-budget verdict "
+                "above stands on its own; this section would only have added the "
+                "deployment-economics view of the same arms.",
+            ]
+            return "\n".join(lines)
+        lines.append(self.amortization.render())
+        return "\n".join(lines)
+
+    def _zero_marginal_section(self) -> str:
+        """The part of the gain a compute-matched critique structurally cannot reach.
+
+        Reported whether or not it is favourable. A mechanism that mines
+        improvements out of rollouts spent for another purpose is additive to
+        whatever the baseline bought with the same budget, so it cannot lose a
+        matched comparison -- but only for the improvements actually derived,
+        and the number is zero often enough that printing it unconditionally is
+        the only way it stays believable.
+        """
+        lines = ["## Zero-marginal-cost improvements", ""]
+        if self.zero_marginal is None:
+            lines += [
+                "No zero-marginal accounting supplied, so every improvement in "
+                "this report is treated as search-funded and the matched-budget "
+                "comparison above is the whole story.",
+            ]
+            return "\n".join(lines)
+        lines.append(self.zero_marginal.render())
+        return "\n".join(lines)
+
     # -- assembly --------------------------------------------------------
     def render(self) -> str:
         """Render the whole report. Verdict criterion precedes every number."""
@@ -551,6 +616,10 @@ class EvaluationReport:
             self._tail_section(),
             "",
             verdict.render(),
+            "",
+            self._amortization_section(verdict),
+            "",
+            self._zero_marginal_section(),
         ]
         if self.caveats:
             parts += ["", "## Caveats", ""] + [f"- {c}" for c in self.caveats]
@@ -570,4 +639,10 @@ class EvaluationReport:
             "protocol": self.protocol.to_dict() if self.protocol else None,
             "selector_gaps": dict(self.selector_gaps),
             "caveats": list(self.caveats),
+            "amortization": (
+                self.amortization.to_dict() if self.amortization else None
+            ),
+            "zero_marginal": (
+                self.zero_marginal.to_dict() if self.zero_marginal else None
+            ),
         }
