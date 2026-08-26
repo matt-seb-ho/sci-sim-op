@@ -31,7 +31,9 @@ from harness_evolve.simulators.geos import (
     worst_subtrees,
 )
 
-REPO3_JUDGE = Path("/home/agent/repo3/src/eval/judge_geos.py")
+from _repo3_path import REPO3  # resolves $REPO3_PATH or a conventional location
+
+REPO3_JUDGE = REPO3 / "src/eval/judge_geos.py"
 
 
 # ------------------------------------------------------------- fixtures

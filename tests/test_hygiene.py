@@ -46,7 +46,7 @@ from harness_evolve.hygiene.gate import (
 from harness_evolve.simulators.base import Artifact, ContaminationPolicy, SimulatorSpec
 from harness_evolve.types import Finding, Score
 
-REPO3 = Path("/home/agent/repo3")
+from _repo3_path import REPO3  # resolves $REPO3_PATH or a conventional location
 V3_DIR = REPO3 / "plugin_evolving/v3"
 V4_DIR = REPO3 / "plugin_evolving/_quarantine/v4"
 BLOCKLIST = REPO3 / "misc/memory_artifacts/test_blocklist.json"
