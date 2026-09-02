@@ -48,11 +48,15 @@ And the substance of the run, which is not a side note:
 | arm | status | rollouts |
 |---|---|---|
 | Unblock acceptance — both §5 blockers settled | **done**, 0 rollouts | 0 |
-| `baseline` — noise floor on `glm-5.3-flash`, 6 tasks × 3 seeds | **done** | 18 |
+| `baseline` — noise floor, 6 tasks × 3 seeds | **done** | 18 |
+| Pool merge: `stealth/ox-alpha` rollouts are this model's | **done, $0.00** | 0 (+18 usable) |
 | Slice re-cut on the σ-pruned pool | **done, $0.00** (all replayed) | 0 |
-| `search --budget 2` | **ran; produced no evaluated candidate** | 0 new (7 replayed) |
-| `baselines` — compute-matched | **NOT RUN** | 0 |
-| ablation | **NOT RUN** | 0 |
+| `search --budget 2` — child 1 `cand_e4345ff8953c` | **done, 6 cells** | 6 |
+| `search --budget 2` — child 2 `cand_980497a57a8e` | **in flight** | 3 of 6 |
+| best-of-k draws for the matched arm (banked in advance) | **done** | 12 |
+| `ExampleMandel` replication of the decisive cell | **in flight** | 0 of 4 |
+| `baselines` — compute-matched, k from the ledger | pending the search | mostly replay |
+| ablation | **not run** — the replication was the better buy | 0 |
 
 **Why the search produced nothing** — both proposals failed, and the second is a defect:
 
