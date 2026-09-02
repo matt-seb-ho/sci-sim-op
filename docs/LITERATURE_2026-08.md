@@ -83,6 +83,7 @@ called zero times while verified functional).
 | **2608.13228** | Capability Sheaves for Compositional Agent-Harness Repair | 2026-08-13 | Sheaf-theoretic model of harness component disagreement; on a real SWE-bench-Multilingual discovery split the cohomological selector resolves 118 vs 116 issues, **not supported across repositories (sign-flip p=0.75)** — the authors report the discovery gate as failed. | no | **low** — an honestly reported negative; do not build on it |
 | **2608.02639** | Instruction Stacking Collapse: A Benchmark and the Capability-Dependent Value of Prompt Compilation | 2026-07-31 | Stacks 24 verifier-checked instructions one to twenty at a time: instruction-following degrades **non-linearly, from ~96% to as low as 20%**, driven by a reproducible set of pairwise conflicts (one "output JSON" constraint is jointly unsatisfiable with nine others). A training-free instruction compiler recovers up to +11 points **for weaker models only**, leaving strong models unchanged. | benchmark/verifiers released; no GitHub URL on abs page | **medium-high** — our primer plus cheatsheet plus negative constraints *is* a stacked-instruction prompt; this quantifies the cost of adding one more line and predicts the benefit is capability-graded across our cross-model panel |
 | **2607.25032** | Authoring Agent Skills: A Software-Engineering Approach | 2026-07-27 | Position note treating an Agent Skill as a software artefact: single responsibility, interface/implementation separation, low coupling, **economy in a shared token budget**, behavioural evaluation in place of deterministic testing; gives a rule for choosing between skills, memory files, hooks, subagents and tools **based on who decides that a mechanism runs**. | no | **medium** — "who decides that a mechanism runs" is exactly the axis on which our MCP-memory experiment failed; useful framing for the paper |
+| **2605.19932** | PEEK: Context Map as an Orientation Cache for Long-Context LLM Agents | 2026-05-19 | Caches **reusable orientation knowledge** about a recurring external context (what it contains, how it is organized, which entities/constants/schemas have historically been useful) as a **constant-sized context map** in the prompt, maintained by a Distiller (extract from inference-time signals) / Cartographer (structured edits) / priority Evictor (fixed token budget). +6.3-34.0% over strong baselines with **93-145 fewer iterations** and **1.7-5.8x lower cost than ACE**; +6.0-14.0% solving rate on context learning. | not stated on abs page | **high** — the closest published instance of our "open-book exam" thesis (T1): what you cache is *orientation*, not content. Supersedes ACE on our exact axis (cost under a hard token cap) and its Evictor is a better fit than ACE's delta updates for an always-on artifact |
 
 ---
 
@@ -468,3 +469,34 @@ per edit, i.e. rollouts, and we have ~17 tasks × 2–3 seeds. Three patches, al
    defaults filled the gap. Nobody has quantified how much of a validator-grounded score is default-filled.
    Our `treesim_detail` per-section scores plus the validator give us the two views needed to measure it.
 
+---
+
+## 11. Addendum — 2026-09-02, added by request
+
+**arXiv:2605.19932 (PEEK)** was added to the verified table in §1 above; abstract fetched
+from `arxiv.org/abs/2605.19932` on 2026-09-02 and read before writing the entry. It was
+missing from the August sweep because that sweep scoped on *harness/skill evolution* and
+PEEK files as long-context agent memory.
+
+**Why it matters more than its table row suggests.** It is the nearest published relative
+of thread **T1** in [`PROJECT_PRIMER.md`](PROJECT_PRIMER.md) — the open-book-exam thesis
+that what studying buys an agent is *navigation of the corpus*, not memorization of it.
+PEEK's "orientation knowledge" is that idea, made concrete and measured. Three specific
+consequences for us:
+
+1. **It gives §10.1 a competitor and §10.4 a method.** Our unclaimed position was
+   deriving an always-on artifact from validator repair directives and from what an expert
+   looked up. PEEK derives its map from inference-time signals over one recurring context.
+   The distinguishing move remains **multi-source** (docs + papers + example decks + forum
+   threads) and **procedural** know-how, not just orientation over a single corpus.
+2. **It beats ACE on our binding axis.** 1.7-5.8x lower cost at a fixed token budget.
+   §8.1 already argued ACE should be replaced; PEEK is a second, independent reason and a
+   concrete replacement for the delta-update ingredient in the four-method adoption set.
+3. **The Evictor is the mechanism we lack.** Our v1 pathology was 12x monotone growth of an
+   always-on artifact (see 2608.11095, catastrophic remembering). PEEK enforces a fixed
+   budget by *priority eviction*; SkillZip (2608.11079) enforces one by MDL compression
+   under coverage constraints. These are two different answers to the same question and are
+   worth ablating against each other.
+
+**Not yet done:** full read of the paper (only the abstract has been verified), and no check
+of whether code is released. Both should happen before PEEK is cited in writing.
