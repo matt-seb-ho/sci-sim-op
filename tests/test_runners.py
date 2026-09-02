@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
+import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -595,7 +597,9 @@ def test_nonzero_exit_still_yields_a_score(tmp_path: Path) -> None:
 
 
 def test_timeout_yields_a_zero_not_an_exception(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
+    # settle_timeout_s=0: a genuinely absent workspace should not be waited on
+    # here. The waiting behaviour has its own tests below.
+    cfg = replace(_config(tmp_path), settle_timeout_s=0.0)
     cand = make_candidate()
     runner = SubprocessRunner(FakeSpec(), cfg)
     fake = FakeCommand(
@@ -802,3 +806,77 @@ def test_a_launcher_that_exits_nonzero_is_not_blamed_on_the_candidate(
     rollout = runner.run(cand, "t1", seed=1)
     assert rollout.score.status == "harness_error"
     assert rollout.error and "exited 2" in rollout.error
+
+
+# --------------------------------------------------------------------------
+# F7: an empty workspace after a timeout kill is not believed immediately.
+#
+# The harness copies the agent's workspace out of the container when the run
+# ends. Killing a run on timeout can catch that copy in progress. Two of the
+# first eighteen rollouts on 2026-09-02 scored `empty_workspace` 0.0000 while
+# fourteen files -- including two complete GEOS decks -- were still landing;
+# re-scoring one from the same directory minutes later returned 0.8250,
+# success. That is a fabricated zero, on the exact quantity (zero rate) the
+# reliability argument of this whole project rests on.
+# --------------------------------------------------------------------------
+
+
+def test_an_empty_workspace_after_a_timeout_is_rechecked(tmp_path: Path) -> None:
+    cfg = replace(_config(tmp_path), settle_timeout_s=5.0)
+    cand = make_candidate()
+    runner = SubprocessRunner(FakeSpec(), cfg)
+    result_dir = runner.result_dir(runner.run_name(cand, 1, "t1"), "t1")
+
+    calls: list[int] = []
+    real = runner.score_result_dir
+
+    def late_arrival(rd: Path, task: str):
+        calls.append(1)
+        if len(calls) == 2:  # the copy lands between the first and second look
+            (rd / "inputs").mkdir(parents=True, exist_ok=True)
+            (rd / "inputs" / "deck.xml").write_text("<Problem/>")
+        return real(rd, task)
+
+    runner.score_result_dir = late_arrival  # type: ignore[method-assign]
+    runner.SETTLE_POLL_S = 0.01
+    fake = FakeCommand(result_dir, returncode=124, write=False, timed_out=True)
+    runner._command_runner = fake  # type: ignore[attr-defined]
+
+    score = runner.settle_and_score(result_dir, "t1", timed_out=True)
+
+    assert score.status != "empty_workspace", "a fabricated zero survived"
+    assert score.detail.get("settled_after_empty") is True
+    assert len(calls) >= 2
+
+
+def test_a_workspace_that_stays_empty_still_scores_zero(tmp_path: Path) -> None:
+    # The fix must not turn a real empty workspace into anything else -- it may
+    # only cost a few seconds to confirm it.
+    cfg = replace(_config(tmp_path), settle_timeout_s=0.05)
+    runner = SubprocessRunner(FakeSpec(), cfg)
+    runner.SETTLE_POLL_S = 0.01
+    cand = make_candidate()
+    result_dir = runner.result_dir(runner.run_name(cand, 1, "t1"), "t1")
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    score = runner.settle_and_score(result_dir, "t1", timed_out=True)
+
+    assert score.value == 0.0
+    assert score.status in ("no_workspace", "empty_workspace")
+    assert score.detail.get("settle_timeout_s") == 0.05
+
+
+def test_a_clean_exit_with_an_empty_workspace_is_not_waited_on(tmp_path: Path) -> None:
+    # Only a killed run can be mid-copy. Waiting after a normal exit would add
+    # latency to the commonest failure and buy nothing.
+    cfg = replace(_config(tmp_path), settle_timeout_s=30.0)
+    runner = SubprocessRunner(FakeSpec(), cfg)
+    cand = make_candidate()
+    result_dir = runner.result_dir(runner.run_name(cand, 1, "t1"), "t1")
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    started = time.monotonic()
+    score = runner.settle_and_score(result_dir, "t1", timed_out=False)
+
+    assert time.monotonic() - started < 1.0
+    assert score.status in ("no_workspace", "empty_workspace")

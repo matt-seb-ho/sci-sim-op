@@ -187,6 +187,10 @@ class Search:
         # rejects almost every candidate, including genuine improvements.
         self._by_seed: dict[str, dict[TaskId, list[float]]] = {}
         self._seen_hashes: dict[str, set[str]] = {}
+        #: Things the run needs to say out loud in its own summary -- currently
+        #: harness errors dropped from selection. Copied onto the SearchResult,
+        #: because a caveat nobody reads is not a caveat.
+        self.notes: list[str] = []
 
     # -- evaluation -------------------------------------------------------
     def _evaluate(
@@ -206,14 +210,44 @@ class Search:
         ]
         by_task: dict[TaskId, list[float]] = {}
         cost = Cost()
+        infra: list[Rollout] = []
         for r in rollouts:
             if not r.selectable:
                 raise ValueError(
                     f"rollout for {r.task!r} is slice={r.slice!r} and cannot be "
                     "used for selection"
                 )
-            by_task.setdefault(r.task, []).append(r.score.value)
             cost = cost + r.cost
+            # A harness error is not evidence about the candidate. It is a held
+            # run lock, a launcher exiting 0 with a failed task, or -- as on
+            # 2026-09-02 -- OpenRouter answering "Upstream idle timeout
+            # exceeded" with the rollout producing no deck at all. Its score is
+            # a placeholder 0.0, and averaging that in punishes a candidate for
+            # the weather.
+            #
+            # `report_geos.py` has excluded these from *reported* means since
+            # 2026-08-26. This is the *selection* path, and it did not -- so an
+            # infrastructure hiccup on the seed makes every later child look
+            # better than it is, manufacturing exactly the positive result this
+            # campaign is pre-registered against finding.
+            if r.score.status == "harness_error":
+                infra.append(r)
+                continue
+            by_task.setdefault(r.task, []).append(r.score.value)
+        if infra:
+            self.notes.append(
+                f"{candidate.cid}: {len(infra)} harness error(s) excluded from "
+                f"selection ("
+                + "; ".join(f"{r.task}/seed{r.seed}" for r in infra[:4])
+                + ")"
+            )
+        if not by_task:
+            raise ValueError(
+                f"every rollout for {candidate.cid} was a harness error "
+                f"({len(infra)}); there is nothing to select on. That is an "
+                f"infrastructure outage, not a bad candidate -- fix the harness "
+                f"rather than recording a zero."
+            )
         scores = {t: statistics.mean(v) for t, v in by_task.items()}
         self._by_seed[candidate.cid] = {t: list(v) for t, v in by_task.items()}
         self._observe_directives(rollouts)
@@ -346,6 +380,7 @@ class Search:
             )
 
         result = SearchResult(archive=self.archive, log=self.log, best=None)
+        result.notes = self.notes
 
         seed.validate()
         scores, cost, rollouts = self._evaluate(seed, anchor_tasks, self.cfg.seeds)

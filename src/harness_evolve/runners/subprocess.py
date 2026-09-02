@@ -33,6 +33,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
@@ -133,6 +134,13 @@ class SubprocessRunnerConfig:
     agent: str = "claude_code_repo3_plugin_xmllint_all"
     run_prefix: str = "evolve"
     timeout_s: float = 1800.0
+    #: Seconds to keep re-checking a workspace that scored empty after a
+    #: *timeout kill*. The harness copies the workspace out of the container
+    #: when the run ends, and killing a run can catch that copy in progress:
+    #: two of the first eighteen rollouts on 2026-09-02 scored `empty_workspace`
+    #: 0.0000 while their decks were still landing, and one of them re-scored
+    #: 0.8250, success, from the same directory minutes later. Zero disables it.
+    settle_timeout_s: float = 45.0
     #: Bind-mounted volume the harness needs for GEOS data. Checked in
     #: preflight because its absence is the single most common reason a box
     #: cannot run this.
@@ -243,7 +251,7 @@ class SubprocessRunner(RolloutRunner):
         # Nothing between here and the Rollout may return early. The v1 defect
         # was structural, not a typo: scoring lived past a branch that was never
         # taken.
-        score = self.score_result_dir(result_dir, task)
+        score = self.settle_and_score(result_dir, task, timed_out=proc.timed_out)
         # Checked before the returncode branch because the returncode is 0 here:
         # the launcher reports its own failures in stdout and exits successfully.
         infra = harness_failure(proc.stdout) if proc.ok else None
@@ -362,6 +370,50 @@ class SubprocessRunner(RolloutRunner):
         ]
 
     # -- scoring ----------------------------------------------------------
+    SETTLE_POLL_S: float = 3.0
+
+    def settle_and_score(
+        self, result_dir: Path, task: TaskId, *, timed_out: bool = False
+    ) -> Score:
+        """Score, but do not believe an empty workspace immediately.
+
+        **Found 2026-09-02 (F7).** The harness copies the agent's workspace out
+        of the container after the run, and when a rollout is *killed* on
+        timeout that copy can still be in progress when we score. Two of the
+        first eighteen rollouts came back ``empty_workspace`` with value
+        ``0.0000``; re-scoring one of them from the very same directory minutes
+        later returned **0.8250, success**. Fourteen files, including two
+        complete GEOS decks, were simply not there yet.
+
+        That is the worst kind of defect this project has: not a crash, a
+        *plausible number*. And it lands on the single quantity the whole
+        reliability argument is about -- the **zero rate** -- inflating it with
+        zeros that never happened, on exactly the long-running rollouts most
+        likely to be interesting.
+
+        So an empty result is re-checked rather than trusted. A workspace that
+        is genuinely empty still scores zero; it just costs a few seconds to
+        establish that, against a rollout measured in tens of minutes.
+        """
+        score = self.score_result_dir(result_dir, task)
+        window = float(getattr(self.config, "settle_timeout_s", 0.0) or 0.0)
+        # Only a *killed* run can be mid-copy. A launcher that exited on its own
+        # has finished writing, so an empty workspace then is a real one and
+        # waiting on it would only add latency to the commonest failure.
+        if (not timed_out or window <= 0
+                or score.status not in ("no_workspace", "empty_workspace")):
+            return score
+        deadline = time.monotonic() + window
+        while time.monotonic() < deadline:
+            time.sleep(min(self.SETTLE_POLL_S, window))
+            retry = self.score_result_dir(result_dir, task)
+            if retry.status not in ("no_workspace", "empty_workspace"):
+                return _annotate(retry, {
+                    "settled_after_empty": True,
+                    "first_status": score.status,
+                })
+        return _annotate(score, {"settle_timeout_s": window})
+
     def score_result_dir(self, result_dir: Path, task: TaskId) -> Score:
         """Score the workspace the harness produced. Never returns ``None``.
 

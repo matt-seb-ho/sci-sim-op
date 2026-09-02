@@ -12,7 +12,7 @@ simulator, so it runs offline in milliseconds.
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 
@@ -575,3 +575,72 @@ def test_a_hygiene_rejection_names_the_finding_that_actually_blocked():
     assert "task_id" in reason
     assert "rare_token_overlap" in reason
     assert "path_component" not in reason
+
+
+# --------------------------------------------------------------------------
+# F8: an infrastructure failure must not be selected on.
+#
+# `report_geos.py` has excluded `harness_error` rollouts from reported means
+# since 2026-08-26. `Search._evaluate` did not -- it averaged `score.value` over
+# every rollout, and a harness error carries a placeholder 0.0. So a provider
+# hiccup on the *seed* deflated the seed's score and made every later child look
+# better than it was: a manufactured improvement, in a campaign pre-registered
+# to expect a null. Observed live on 2026-09-02, when OpenRouter returned
+# "Upstream idle timeout exceeded" on one of the seed's own anchor rollouts.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class FlakyRunner(FakeRunner):
+    """Fails one specific (task, seed) cell the way the real harness does."""
+
+    flaky_cell: tuple[str, int] = ("t_alpha", 2)
+
+    def run(self, candidate: Candidate, task: str, seed: int = 1) -> Rollout:
+        rollout = super().run(candidate, task, seed)
+        if (task, seed) == self.flaky_cell:
+            return replace(
+                rollout,
+                score=Score(task=task, value=0.0, status="harness_error"),
+                error="harness reported failure while exiting 0",
+            )
+        return rollout
+
+
+def test_a_harness_error_is_not_averaged_into_a_candidate_score():
+    seed = make_seed(memory="- alpha beta gamma delta")
+    clean = Search(FakeRunner(), ScriptedProposer([]), config=SearchConfig(budget_candidates=0))
+    flaky = Search(FlakyRunner(), ScriptedProposer([]), config=SearchConfig(budget_candidates=0))
+
+    clean_scores, _, _ = clean._evaluate(seed, TASKS, (1, 2))
+    flaky_scores, _, _ = flaky._evaluate(seed, TASKS, (1, 2))
+
+    # The flaky cell is dropped, not averaged in as a zero.
+    assert flaky_scores["t_alpha"] == pytest.approx(clean_scores["t_alpha"])
+    assert flaky_scores["t_alpha"] > 0.0
+
+
+def test_the_dropped_rollouts_are_reported_rather_than_hidden():
+    seed = make_seed(memory="- alpha beta gamma delta")
+    search = Search(FlakyRunner(), ScriptedProposer([]), config=SearchConfig(budget_candidates=0))
+    search._evaluate(seed, TASKS, (1, 2))
+    note = "\n".join(search.notes)
+    assert "harness error" in note
+    assert "t_alpha/seed2" in note
+
+
+def test_an_all_harness_error_evaluation_refuses_rather_than_scoring_zero():
+    # If everything fails, that is an outage. Recording it as a candidate worth
+    # 0.0 is how an infrastructure problem becomes a research finding.
+    @dataclass
+    class DeadRunner(FakeRunner):
+        def run(self, candidate: Candidate, task: str, seed: int = 1) -> Rollout:
+            return replace(
+                super().run(candidate, task, seed),
+                score=Score(task=task, value=0.0, status="harness_error"),
+                error="every route failed",
+            )
+
+    search = Search(DeadRunner(), ScriptedProposer([]), config=SearchConfig(budget_candidates=0))
+    with pytest.raises(ValueError, match="infrastructure outage"):
+        search._evaluate(make_seed(), TASKS, (1,))

@@ -986,3 +986,183 @@ converge on the same deck structure score identically. Recorded now because **σ
 for this task so far, against ox-alpha's σ = 0.0815** — if that holds through seed 3 it is
 a real difference between the models in run-to-run stability, and it is the kind of thing
 that would otherwise be noticed only after being used.
+
+---
+
+## 15. BASELINE COMPLETE — and two more fabricated-number defects it exposed (12:20–12:35)
+
+```bash
+$ uv run python scripts/search_geos.py --stage baseline --parallel 8 --seeds 1,2,3 \
+    --timeout 2400 --task-list <the 6> \
+    --out /home/matt/projects/sci-sim-op/.evolve/geos_search
+18 rollout(s): 18 executed        elapsed 10:42 -> 12:20 (98 min)
+```
+
+### 15.1 F7 — a timed-out rollout is scored before its workspace has finished copying
+
+Two of the eighteen came back `empty_workspace`, value **0.0000**. Both had timed out.
+Neither workspace was empty:
+
+```
+$ ls .../evolve-cand_d1c0f1f0f516-s3-buckleyLeverettProblem/buckleyLeverettProblem/inputs
+buckleyLeverett_base.xml   buckleyLeverett_benchmark.xml   inputFiles/
+saturationHistory.hdf5     src/   vtkOutput/   vtkOutput.pvd          <- 14 files
+$ .../s3-AdvancedExampleDruckerPrager/.../status.json
+elapsed 2366.3   88 assistant turns   "Let me measure the slopes directly from ..."
+```
+
+Re-scored offline from the **same directory**, minutes later:
+
+```
+AdvancedExampleDruckerPrager  seed 3   empty_workspace 0.0000  ->  success 0.8250   CHANGED
+buckleyLeverettProblem        seed 3   empty_workspace 0.0000  ->  empty_workspace  unchanged
+```
+
+**The harness copies the agent's workspace out of the container when the run ends, and
+killing a run on timeout catches that copy in progress.** So the score is computed against
+a directory that is still filling. A 0.8250 was recorded as a 0.0000.
+
+This is the worst shape available: not a crash, a *plausible number*, landing on the
+**zero rate** — the single tail quantity the whole reliability argument of this project is
+about. And it does not stop at the number: `build_slices` reads spread and zero-rate to
+choose anchors, so the first slice plan came back with
+
+```
+buckleyLeverettProblem       [boundary] in play: mean 0.59, spread 0.42, zero rate 33%
+AdvancedExampleDruckerPrager [boundary] in play: mean 0.64, spread 0.45, zero rate 33%
+```
+
+— i.e. **the two fabricated zeros nominated their own tasks as the search's anchors.**
+
+**Fixed** in `SubprocessRunner`: `settle_and_score()` re-checks an empty workspace for up
+to `settle_timeout_s` (45 s, configurable, 0 disables) — but *only after a timeout kill*,
+since a launcher that exited on its own has finished writing. Three tests: a late arrival
+is picked up, a genuinely empty workspace still scores zero, and a clean exit is never
+waited on.
+
+**Corrected the corpus** rather than only the code, with `scripts/rescore_corpus.py`
+(re-scoring from artifacts is free and is exactly what the recording corpus exists for).
+Originals are preserved: the corrected row carries `rescored_from`, and
+`/home/matt/projects/sci-sim-op/.evolve/geos_search/rollouts.jsonl.pre-rescore.bak` holds
+the file as recorded.
+
+### 15.2 F7b — and `empty_workspace` is the wrong name for the other one
+
+`buckleyLeverettProblem` seed 3 still scores 0.0000 with 14 files present, and the cause is
+different and genuine:
+
+```
+FileNotFoundError: .../inputs/inputFiles/compositionalMultiphaseFlow/benchmarks/
+                   buckleyLeverettProblem/buckleyLeverett_base.xml
+GEN xml at top level: ['buckleyLeverett_base.xml', 'buckleyLeverett_benchmark.xml']
+```
+
+The agent wrote a complete deck to `inputs/` — which is literally what its PRIMER tells it
+to do — while the scorer requires the deck at the **ground-truth-relative** subpath. The
+other two seeds of the same task got it right, so this is a real and recurring model
+failure. But **the status says the workspace was empty, and it was not**: a reader takes
+`empty_workspace` to mean the agent produced nothing, when it produced a complete deck in
+the wrong place. Left as-is rather than renamed — changing the scorer mid-campaign changes
+the dependent variable — and reported.
+
+### 15.3 F8 — infrastructure failure *is* counted as model failure, inside selection
+
+Found by reading the search's own first output, which replayed the seed's anchor:
+
+```
+ExampleMandel                0.3414 success
+ExampleMandel                0.0000 harness_error   [HARNESS ERROR]
+```
+
+`report_geos.py` has excluded `harness_error` from reported means since 2026-08-26.
+**`Search._evaluate` did not.** It averaged `r.score.value` over every rollout, and a
+harness error carries a placeholder `0.0`:
+
+```python
+by_task.setdefault(r.task, []).append(r.score.value)   # every rollout, no filter
+```
+
+So the seed's `ExampleMandel` score was **0.1707 instead of 0.3414** — halved by an
+OpenRouter timeout. Every child would then be compared against an artificially weakened
+seed. **That manufactures an improvement in a campaign pre-registered to expect a null**,
+which is the most expensive direction for an error here to point.
+
+The previous session fixed the *reporting* path and left the *selection* path; the two
+looked like one thing. Fixed: harness errors are excluded from selection, the exclusions
+are reported in the run's own summary, and an evaluation where *everything* failed now
+raises rather than recording a candidate worth 0.0 — an outage is not a bad candidate.
+Three tests.
+
+**The search was killed and relaunched with the fix**, at 12:32. It had run for four
+minutes and executed no new rollouts (the seed's anchor was replayed), so this cost
+nothing but the time.
+
+### 15.4 The corrected baseline
+
+```bash
+$ uv run python scripts/report_geos.py --out .../geos_search --model z-ai/glm-5.3-flash
+18 rollouts (17 scored, 1 harness error excluded)
+
+== cand_d1c0f1f0f516  model=z-ai/glm-5.3-flash  n=17
+   mean 0.5919   zero rate 0.059   min 0.0000   max 0.9799
+     ExampleIsothermalLeakyWell    0.9477 +/- 0.0524   n=3
+     AdvancedExampleDruckerPrager  0.9157 +/- 0.0786   n=3
+     buckleyLeverettProblem        0.5855 +/- 0.5170   n=3
+     ExampleDPWellbore             0.5017 +/- 0.3603   n=3
+     ExampleMandel                 0.3355 +/- 0.0084   n=2
+     TutorialSneddon               0.1798 +/- 0.1649   n=3
+   statuses: {'success': 16, 'empty_workspace': 1}
+```
+
+### 15.5 D5 vindicated: pruning on last week's model's σ would have picked the worst task
+
+```
+                              ox-alpha σ      glm-5.3-flash σ
+buckleyLeverettProblem          0.0035    ->     0.5170      quietest -> NOISIEST
+ExampleIsothermalLeakyWell      0.0054    ->     0.0524
+TutorialSneddon                 0.0105    ->     0.1649
+AdvancedExampleDruckerPrager    0.0815    ->     0.0786
+ExampleMandel                   0.1870    ->     0.0084  (n=2)
+ExampleDPWellbore               0.3192    ->     0.3603
+```
+
+**`buckleyLeverettProblem` goes from the quietest task in the pool to the noisiest.** Had
+the pool been pruned using `BUDGET_PLAN` §3.1's stored σ — as the brief's §4 stage 2
+literally instructs — the single noisiest task on tonight's model would have been retained
+as an anchor, and the two dropped would have been the wrong two. That is F1's error in a
+different place, and it is why D5 waited for the measurement.
+
+**Minimum detectable effect, tonight's model, 3 seeds:**
+
+| pool | one arm | arm vs arm |
+|---|---|---|
+| all 6 tasks | 0.1241 | 0.1756 |
+| drop 1 noisiest | 0.0922 | 0.1304 |
+| **drop 2 noisiest (the pool used)** | **0.0538** | **0.0761** |
+
+For comparison the same computation on ox-alpha gave **0.0330** arm-vs-arm. **This model
+is roughly 2.3× noisier on the same tasks**, so tonight's search has to clear a much higher
+bar to say anything — and that is a fact about the measurement, established before the
+search ran, not an excuse produced afterwards.
+
+Pruned pool (`/home/matt/projects/sci-sim-op/.evolve/geos_search/pool.json`):
+`ExampleMandel, ExampleIsothermalLeakyWell, AdvancedExampleDruckerPrager, TutorialSneddon`.
+Slices re-cut over it for **$0.00** — `12 rollout(s): 0 executed, 12 replayed from the
+corpus`. Anchor: `ExampleMandel`, `ExampleIsothermalLeakyWell`,
+`AdvancedExampleDruckerPrager`. Probe: `TutorialSneddon`.
+
+### 15.6 Cost: the budget plan's $/rollout is a large underestimate
+
+| reading (UTC) | key usage | spent this campaign |
+|---|---|---|
+| 10:42 baseline launch | $1.2837 | $0.0127 |
+| 12:20 baseline end | $2.2805 | $1.0094 |
+| 12:28 search launch | **$4.7682** | **$3.4971** |
+
+The 18-rollout baseline cost **~$3.50, i.e. ~$0.194/rollout — 5× the $0.0381** in
+`docs/2026-08-26_BUDGET_PLAN.md` §2. (Usage settles with a lag, so the 12:20 figure was
+still landing at 12:28.) The plan's figure came from a two-task cost probe; these tasks run
+to the 2400 s timeout with far more turns. **The programme estimate of $21 for 560 rollouts
+should be read as ≈$109.** Money still is not tonight's binding constraint — $15.23 remains,
+~78 rollouts at the measured rate — but the number in the funding document is wrong by 5×
+and that matters more than tonight's arithmetic.
