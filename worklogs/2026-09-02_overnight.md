@@ -665,3 +665,52 @@ declining to do and why it costs money to decline it.
 ceiling `18.728929`, spent-this-campaign `$0.0127`. (The $0.0127 is the aborted 300 s smoke
 rollout in §3.2 — a partial rollout that was killed by my own `timeout`, not by the guard.)
 Every reading is appended to `/home/matt/projects/sci-sim-op/.evolve/provider_calls.jsonl`.
+
+---
+
+## 10. **CORRECTION to §2 — the F2 fix had not actually landed** (10:45)
+
+While sizing the search I read `scripts/search_geos.py:405` and found:
+
+```
+405:        backend=free_window_backend(),
+```
+
+**§2 above reports F2 as fixed. It was not.** The import of `campaign_backend` had
+landed; the *call site* had not — my edit's anchor text contained a `§` that did not match
+the file byte-for-byte, the replacement silently did nothing, and I checked the import with
+`grep` rather than the call. Committed in `0581b58` in that state.
+
+The irony is exact and worth recording rather than tidying away: **I asserted a fix instead
+of measuring it**, in a log whose §2 is about a bug that would have made the search report
+a plausible null. Had this shipped, the search would have run tonight on a dead proposer
+model and returned its seed — the precise failure F2 describes — while this worklog said
+it could not.
+
+Fixed for real, and this time verified by *running it*, live, against the paid model:
+
+```
+$ campaign_backend(('z-ai/glm-5.3-flash',))(...)
+routes: ['openrouter/z-ai/glm-5.3-flash']
+reply:  'alive'
+stats:  {'calls': 1, 'total_cost': 7.05e-06, 'unknown_cost_calls': 0}
+```
+
+Two things are established by that one call, neither of which a grep could have shown:
+
+1. **The proposer reaches the campaign model.** F2 is closed.
+2. **The budget policy change works.** Under the old rule — `usage.cost` must be zero —
+   a `total_cost` of `7.05e-06` would have raised `BilledCallError` and permanently
+   disabled the route on the first call. It did not.
+
+### 10.1 A second hole closed while looking: the Nous failover
+
+The roster built two routes, `openrouter/…` and `nous/…`. Spend is enforced against **this
+OpenRouter account's** counter, so a failover onto Nous would bill a meter the guard cannot
+see: the cap would hold on paper while money left by another door. `campaign_backend` is
+now OpenRouter-only. It is also a validity point rather than only a cost one — one
+provider is one independent variable.
+
+**Standing lesson, again:** every defect in this campaign that mattered was found by
+running something and reading what came out. Three of them now — R1, F1/F2, and this — and
+the one I got wrong was the one I checked by reading.

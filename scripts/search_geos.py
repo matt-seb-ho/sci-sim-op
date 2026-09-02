@@ -402,7 +402,15 @@ def cmd_search(args: argparse.Namespace) -> int:
     ledger = BudgetLedger()
     ablate = {a.strip() for a in (args.ablate or "").split(",") if a.strip()}
     proposer = LLMProposer(
-        backend=free_window_backend(),
+        # The proposer runs on the campaign model, named explicitly. This was
+        # `free_window_backend()`, whose roster defaults to `stealth/ox-alpha` --
+        # dead since 2026-08-26 16:27. Every proposal call would have 404'd, the
+        # search would have proposed nothing and returned its seed, and that is
+        # indistinguishable from the pre-registered null this campaign exists to
+        # test for. `campaign_backend` takes no default model, so it cannot go
+        # stale the same way.
+        backend=campaign_backend(
+            (MODEL,), ledger_path=REPO / ".evolve" / "provider_calls.jsonl"),
         # ox-alpha is a reasoning model: at a small budget it spends the whole
         # allowance thinking and returns no content at all (§3.3).
         config=LLMProposerConfig(max_tokens=8000),

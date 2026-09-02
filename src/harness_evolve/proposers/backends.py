@@ -786,7 +786,15 @@ def campaign_backend(
     """
     if not models:
         raise ProposerError("campaign_backend requires at least one model")
-    routes = free_roster(models, require_zero_cost=False)
+    routes = [
+        r for r in free_roster(models, require_zero_cost=False)
+        if r.api_key_env == "OPENROUTER_API_KEY"
+    ]
+    # OpenRouter only, deliberately. Spend is enforced against *this account's*
+    # counter (`harness_evolve.spend`), so a failover onto Nous would bill a
+    # meter the guard cannot see -- the cap would hold on paper while money left
+    # by another door. It is also a validity point: one provider is one
+    # independent variable.
     if not routes:
         raise ProposerError(
             "no route is configured: set OPENROUTER_API_KEY and/or NOUS_API_KEY"
