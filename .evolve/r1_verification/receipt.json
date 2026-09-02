@@ -1,0 +1,65 @@
+{
+  "ok": true,
+  "verified_at": "2026-09-02T10:39:00+0000",
+  "hook": "/home/matt/projects/siga/plugin/hooks/verify_outputs.py",
+  "hook_sha256": "279dc7f8ee4a742d9cfbfc1c139f084303b0e6bdd7253f2d4868bb74ac843b43",
+  "checks": [
+    {
+      "label": "parse: both arms blocked",
+      "ok": true,
+      "detail": "86 vs 264 chars"
+    },
+    {
+      "label": "parse: feedback text differs across shapes",
+      "ok": true,
+      "detail": "86 vs 264 chars"
+    },
+    {
+      "label": "parse: shape recorded as requested",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "label": "parse: shape source is the forwarded env",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "label": "validate: both arms blocked",
+      "ok": true,
+      "detail": "86 vs 3038 chars"
+    },
+    {
+      "label": "validate: feedback text differs across shapes",
+      "ok": true,
+      "detail": "86 vs 3038 chars"
+    },
+    {
+      "label": "validate: shape recorded as requested",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "label": "validate: shape source is the forwarded env",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "label": "control (forwards stripped): shapes collapse to identical text",
+      "ok": true,
+      "detail": "151 vs 151 chars"
+    },
+    {
+      "label": "control: shape falls back to the default",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "label": "validate: real geosx output reached the agent",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "headline": "validate_minimal=86ch / validate_structured_errors=1212ch / validate_errors_plus_tables=3038ch",
+  "artifacts": "/home/matt/projects/sci-sim-op/.evolve/r1_verification"
+}
