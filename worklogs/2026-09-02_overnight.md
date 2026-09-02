@@ -1571,3 +1571,58 @@ a sixth pair for one rollout and is queued with the replication.
 **Nothing here licenses "self-evolution works on GEOS".** What it licenses is: *one
 proposal, evaluated on five paired cells, produced no difference this design can resolve,
 with the point estimate resting on a single draw of the pool's noisiest task.*
+
+---
+
+## 22. F11 — a materialized adapter does not reproduce its own candidate id (18:30)
+
+**level=finding.** Found while trying to buy the four replication rollouts §21.2 asks for.
+The champion's adapter is on disk in every one of its rollout directories, and
+`.candidate.json` inside it records the right id. Loading that directory does not give it
+back:
+
+```
+$ Candidate.from_dir('.../adapters/evolve-cand_e4345ff8953c-s1-AdvancedExampleDruckerPrager')
+as-loaded cid       : cand_e8c87d98b5c0
+recorded cid        : cand_e4345ff8953c      <- from .candidate.json, i.e. what it IS
+newline-stripped cid: cand_008d508a95d9      <- so it is not only the trailing newline
+```
+
+Three different ids for one adapter. `materialize()` writes each file as
+`text if text.endswith("\n") else text + "\n"` and re-serialises the manifest through
+`to_toml()`, and the round trip is not identity.
+
+**Why it matters more than it looks.** The corpus is keyed on the candidate id. So:
+
+- **`out/best` is not a re-runnable artifact of the champion.** Handing it to a colleague
+  and asking them to reproduce the number would silently evaluate a *different* candidate.
+- **Adding rollouts to a champion after the fact is impossible by this route** — the new
+  rollouts land under a new id, do not pair with the existing cells, and the existing cells
+  do not replay. The arm would look like a fresh candidate that happens to resemble the old
+  one, which is the same class of defect as F1.
+- It is a **reproducibility** defect rather than a correctness one: no number computed
+  tonight is wrong because of it. But the champion cannot be re-run from disk, and that is
+  the artifact a reader would most want.
+
+**Consequence for tonight, stated rather than worked around:** the §21.2 replication of
+`ExampleMandel` — the single cell carrying 89% of the headline — **cannot be bought for the
+champion.** So the headline stays as it is: a positive point estimate resting on one draw,
+with a CI spanning zero, and the one cheap experiment that would settle it is blocked by an
+infrastructure defect found while trying to run it.
+
+**The canonical seed directory is unaffected and was checked before relying on it:**
+
+```
+$ Candidate.from_dir('.evolve/seed').cid  ->  cand_d1c0f1f0f516   MATCH
+$ pre-bought draws                        ->  ('cand_d1c0f1f0f516', 1000/1001/...)
+```
+
+so the mandatory compute-matched arm will replay its banked draws for $0.00 as planned.
+That check was worth making rather than assuming: had the seed directory drifted the same
+way, the matched arm would have quietly re-bought everything under a new id and matched
+nothing.
+
+**Fix for next time** (not attempted now — changing candidate hashing mid-campaign would
+re-key the entire corpus): either persist the canonical files verbatim alongside the
+manifest, or make the id authoritative from `.candidate.json` when present rather than
+recomputed from a lossy round trip.
