@@ -714,3 +714,95 @@ provider is one independent variable.
 **Standing lesson, again:** every defect in this campaign that mattered was found by
 running something and reading what came out. Three of them now — R1, F1/F2, and this — and
 the one I got wrong was the one I checked by reading.
+
+---
+
+## 11. PLAN for the remaining arms, written before running them (10:52)
+
+Sizing arithmetic, so the choices below can be checked rather than taken on trust.
+
+**The search is sequential in candidates.** Within a candidate, `run_many` fans out over
+the thread pool; across candidates it cannot — each proposal depends on the previous
+round's evidence. So the search's wall-clock is
+`budget × (screen_wave + ceil(anchor×seeds / 8) waves) × ~13 min`, and 8-way parallelism
+buys much less here than it does on a flat baseline batch. This is the constraint that
+decides the configuration, and it is not money.
+
+| config | rollouts | wall-clock | verdict |
+|---|---|---|---|
+| budget 4, anchor 4, seeds 1,2,3 | ~58 | ~2.6 h | too slow; would push the matched arm past 15:00 |
+| budget 4, anchor 3, seeds 1,2 | ~32 | ~1.7 h | fits, but leaves no room for an ablation |
+| **budget 3, anchor 3, seeds 1,2** | **~24** | **~1.3 h** | **chosen** — and it is the brief's own `--budget 3` |
+
+**Committed sequence, with the clock:**
+
+| # | arm | rollouts | expected window (UTC) |
+|---|---|---|---|
+| 1 | `baseline`, 6 tasks × 3 seeds | 18 | 10:42 → ~11:20 |
+| 2 | re-cut slices on the pruned pool — **$0, replayed** | 0 | ~11:20 |
+| 3 | `search --budget 3 --seeds 1,2` | ~24 | ~11:25 → ~12:45 |
+| 4 | `baselines` compute-matched, k from the search ledger | ~24 | ~12:45 → ~13:25 |
+| 5 | **one** ablation, chosen from the search's evidence | ~24 | ~13:30 → ~14:50 |
+| — | stop launching | | **15:00** |
+| — | final free recompute + report | | 15:30 → 16:00 |
+
+Total ~90 rollouts ≈ **$3.43** against an $18.73 ceiling. **Money is not close to binding;
+the 15:00 launch gate is.** Arm 5 is genuinely in reach at this sizing, which is why the
+sequence is built around finishing arms rather than around spending the budget.
+
+### 11.1 DECISION D5 — prune the pool by σ, but by *tonight's* σ
+
+**level=decision.** `BUDGET_PLAN` §3.1 says drop the two noisiest tasks: a third fewer
+rollouts and a 3× better MDE (0.144 → 0.047). That method is adopted unchanged. What is
+*not* adopted is its inputs — those σ were measured on `stealth/ox-alpha`, and §25.4 of the
+previous log states the rule: *per-task σ is a property of model × task*. Pruning tonight's
+pool with last week's model's noise would be F1 again in a different place.
+
+So the pruning waits for the 18-rollout baseline, and is then applied to **tonight's**
+measured σ.
+
+**How, with no code change and no cost:** re-run `--stage baseline` with the pruned
+`--task-list`. Every rollout in it is already in the corpus, so it replays at **$0.00** and
+rewrites `/home/matt/projects/sci-sim-op/.evolve/geos_search/slices.json` over the pruned
+pool. The resume machinery earning its keep for the third time.
+
+### 11.2 DECISION D6 — anchor 3 / probe 1, and why not the default heuristic's answer
+
+**level=decision.** §24.3 of the previous log flagged that `build_slices` ranks candidate
+anchor tasks by `in_play`, which *adds* across-seed spread as a positive term:
+
+```python
+return intermittent + self.spread + 0.5 * max(headroom, 0.0)
+```
+
+so it selects the **noisiest** tasks as "boundary" anchors — and those are exactly the
+tasks where nothing a search does is detectable at n=3. The previous author called this
+"directly at odds with detectability" and left two options: raise seeds substantially, or
+weight slice selection by σ.
+
+I am taking **neither** as a code change tonight, deliberately. Raising seeds does not fit
+the clock; re-deriving `in_play` is a change to a core selection heuristic made under
+deadline, with no time to test it properly, and the campaign already has enough novel
+machinery in flight. Pruning the pool by σ *before* `build_slices` sees it achieves the
+same end through the already-blessed `BUDGET_PLAN` §3.1 method: the noisy tasks are simply
+not in the pool, so the heuristic cannot choose them.
+
+Recorded as a limitation rather than solved: **`in_play` still rewards variance, and on a
+pool that had not been pre-pruned it would still pick undetectable anchors.** That is a
+real defect in the slice machinery and it is left standing, visibly, for someone with more
+than four hours.
+
+### 11.3 Pre-registered predictions for the arms about to run
+
+Written now so they cannot be adjusted afterwards. (`docs/PROJECT_PRIMER.md` §7.)
+
+| # | prediction |
+|---|---|
+| **P1** | The search returns its seed, or a candidate whose paired CI against the seed spans zero. (arXiv:2607.12227: harness evolution scores *below* its own seed, 67.4 vs 68.2.) |
+| **P2** | Compute-matched best-of-k ≥ the search at matched budget. (Same paper: 72.3 vs 67.4.) |
+| **P3** | The three vendored checks fire at a rate near zero on real decks; `required_sections` never fires on an under-generated deck, because it is a section-presence check and the sections are present. |
+| **P4** | The zero rate on `glm-5.3-flash` is non-zero but small (ox-alpha: 0.056, n=18), and `ExampleMandel` supplies most of it via timeout. |
+| **P5** | Per-task σ on `glm-5.3-flash` is heterogeneous by at least an order of magnitude, as it was on ox-alpha (0.0035 → 0.32). |
+
+A confirmed P1+P2 is the pre-registered null, and it is a first-class result, not a
+failure to find one.
