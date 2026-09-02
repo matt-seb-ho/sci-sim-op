@@ -4,3 +4,4 @@
 {"ts": "2026-09-02T18:09:10.855014Z", "source": "orchestrator", "level": "info", "event": "wakeup", "detail": "scheduled wakeup fired; checking both arms"}
 {"ts": "2026-09-02T18:17:24.086348Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "turn-cap diagnosis; both arms still in flight"}
 {"ts": "2026-09-02T18:20:32.813029Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
+{"ts": "2026-09-02T18:27:18.403220Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}

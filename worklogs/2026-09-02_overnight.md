@@ -1508,3 +1508,66 @@ The comparison is confounded by (a) full GEOS solves nobody asked for, (b) a sha
 not 0%**, against tonight's 50% at a 2400 s cap — and (d) n=18. **The reportable statement
 is: turn counts differ 5.3×, and here are the four reasons that number cannot yet be
 attributed to the model.**
+
+---
+
+## 21. THE NUMBER — paired champion vs seed (18:27)
+
+```bash
+$ uv run python scripts/paired_champion.py --champion cand_e4345ff8953c
+champion cand_e4345ff8953c   vs   seed cand_d1c0f1f0f516   model z-ai/glm-5.3-flash
+5 paired cell(s); 1 dropped
+
+task                             seed  seed_score   champion     delta
+AdvancedExampleDruckerPrager        1      0.9611     0.9611   +0.0000
+AdvancedExampleDruckerPrager        2      0.9611     0.9611   +0.0000
+ExampleIsothermalLeakyWell          1      0.8873     0.9513   +0.0640
+ExampleIsothermalLeakyWell          2      0.9799     0.9778   -0.0021
+ExampleMandel                       1      0.3414     0.8590   +0.5176
+
+paired mean delta +0.1159   95% CI [-0.0825, +0.3143]   n=5 cells   CI SPANS ZERO
+arm-vs-arm MDE 0.0578
+dropped: seed ExampleMandel/seed2 (harness error)
+```
+Artifact: `/home/matt/projects/sci-sim-op/.evolve/geos_search/paired_champion.json`
+
+**The honest reading: no detectable difference.** The CI spans zero. The point estimate is
+above the MDE, and that is *not* enough, because of how it is composed.
+
+### 21.1 Four of five cells are flat; one cell is the entire effect
+
+`+0.5176` on `ExampleMandel` seed 1 supplies **89% of the paired mean**. Strike that one
+cell and the other four give **+0.0155** — comfortably inside the noise. Two of the five
+cells are **exactly 0.0000**: the child scores bit-identically to its parent on
+`AdvancedExampleDruckerPrager` at both seeds.
+
+This is precisely the failure the previous session wrote down and told us to expect
+(§24.1): *"a search that 'improved' DPWellbore by 0.3 at n=1 would be reporting a coin
+flip."* Here it is `ExampleMandel`, and the shoe fits: on the merged pool that task runs
+**mean 0.2635, σ 0.1477, n=5, min 0.0000, zero rate 20%** — the most erratic task left in
+the pool after pruning, with a known bimodal failure mode. A single draw at 0.8590 is
+~3.7σ above its own mean. That is either a real rescue or Tuesday, and **one cell cannot
+tell the difference.**
+
+### 21.2 What would settle it, and it is cheap
+
+Replicate that one cell. Running **both** candidates on `ExampleMandel` at seeds 3 and 4 is
+4 rollouts (~$0.8, one wave) and converts the headline from "driven by a single draw" to
+"replicated or not". Queued behind the mandatory compute-matched arm, which is priority 3
+and is not negotiable.
+
+Note also that the seed's `ExampleMandel` seed-2 cell was **dropped for a harness error**,
+so this task contributes one pair where the others contribute two. Re-buying that cell adds
+a sixth pair for one rollout and is queued with the replication.
+
+### 21.3 Pre-registered predictions, scored
+
+- **P1 — "the search returns its seed, or a candidate whose paired CI against the seed
+  spans zero."** The CI spans zero. **P1 holds**, though with a positive point estimate it
+  holds weakly and the replication in §21.2 is what would make that verdict solid.
+- **P3 — "vendored checks fire at a rate near zero"** — already falsified (§13).
+- **P2 (compute-matched baseline ≥ search)** and **P5** are not yet decidable.
+
+**Nothing here licenses "self-evolution works on GEOS".** What it licenses is: *one
+proposal, evaluated on five paired cells, produced no difference this design can resolve,
+with the point estimate resting on a single draw of the pool's noisiest task.*
