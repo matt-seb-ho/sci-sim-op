@@ -1385,3 +1385,34 @@ Console logs: `/tmp/claude-1009/search2.log`, `/tmp/claude-1009/prebuy.log`.
 Sixteen concurrent rollouts against one provider slug is above anything measured. If the
 throttle rate rises, the pre-buy is the arm to kill — the search is the critical path and
 the matched baseline can be bought after it. Watching `harness_error` rate as the signal.
+
+---
+
+## 19. F10 RESOLVED — the search is evaluating a real candidate (17:52)
+
+The `max_tokens` 8000 → 32000 fix worked. Priority-1 of the reset is met:
+
+```
+$ corpus candidate census
+('stealth/ox-alpha',    'cand_78856ef8131e'): 51
+('z-ai/glm-5.3-flash',  'cand_d1c0f1f0f516'): 18     <- seed
+('z-ai/glm-5.3-flash',  'cand_e4345ff8953c'):  1     <- CHILD, being evaluated
+cand_e4345ff8953c  AdvancedExampleDruckerPrager  seed 2  0.9611  success
+```
+
+**A proposal survived the proposer, survived hygiene (`hygiene-blocked 0`), and reached an
+evaluator** — the first time that has happened in this project. Both prior attempts died
+before evaluation: 2026-08-26 §16 at the hygiene gate (3/3 blocked), and this morning's
+first run at the proposer (2/2 failed, one on the token budget).
+
+So the three failure modes that had each produced an *artifactual* null are now each
+excluded by measurement rather than by argument:
+
+| | failure | how it is excluded now |
+|---|---|---|
+| hygiene blocks everything | 2026-08-26 §16, 3/3 blocked | `hygiene-blocked 0`, seed passes even `strict` (D1) |
+| proposer cannot reach the model | F2, dead slug | one live call verified, `campaign_backend` has no default model |
+| proposer returns no content | F10, 35 617 chars of reasoning at `max_tokens=8000` | raised to 32 000; a child is on disk |
+
+Whatever this arm reports is therefore about *searching*, not about the harness failing to
+run one. That was the entire point of the night's first six hours.
