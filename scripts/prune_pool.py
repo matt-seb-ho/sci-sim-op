@@ -62,10 +62,18 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=REPO / ".evolve" / "geos_search")
     ap.add_argument("--model", required=True)
     ap.add_argument("--drop", type=int, default=2)
+    ap.add_argument("--also-model", action="append", default=[],
+                    help="treat another slug as the same model and pool its "
+                         "rollouts in. `stealth/ox-alpha` was ZAI's GLM-5.3 "
+                         "Flash -- the vendor's own retirement notice says so -- "
+                         "so its rollouts are glm-5.3-flash rollouts recorded "
+                         "under a pre-release slug, and re-buying them would be "
+                         "paying twice for the same measurement.")
     args = ap.parse_args()
 
     rows = [json.loads(l) for l in (args.out / "rollouts.jsonl").read_text().splitlines() if l.strip()]
-    rows = [r for r in rows if (r.get("model") or "") == args.model]
+    accept = {args.model, *args.also_model}
+    rows = [r for r in rows if (r.get("model") or "") in accept]
     scored = [r for r in rows if (r.get("score") or {}).get("status") != "harness_error"]
     if not scored:
         print(f"no scored rollouts for model {args.model!r}")
@@ -83,7 +91,14 @@ def main() -> int:
     stats.sort(key=lambda s: (s[2] if s[2] == s[2] else -1))
 
     n_seeds = max(len(v) for v in by_task.values())
-    print(f"model {args.model}   {len(scored)} scored rollouts, {len(by_task)} tasks\n")
+    from collections import Counter as _C
+    prov = _C((r.get("model"), r.get("candidate_id")) for r in scored)
+    print(f"model {args.model}"
+          + (f"  (+ pooled: {', '.join(args.also_model)})" if args.also_model else "")
+          + f"   {len(scored)} scored rollouts, {len(by_task)} tasks")
+    for (m, c), n in sorted(prov.items()):
+        print(f"    {n:3d} from {m} / {c}")
+    print()
     print(f"{'task':<34}{'mean':>8}{'sigma':>9}{'zero':>7}{'min':>8}{'n':>4}")
     for t, m, sd, z, lo, n in stats:
         print(f"{t:<34}{m:8.4f}{sd:9.4f}{z:7.0%}{lo:8.4f}{n:4d}")

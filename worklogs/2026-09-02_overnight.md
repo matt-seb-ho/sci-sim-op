@@ -1268,3 +1268,68 @@ is a **slug**, not a model — two slugs served the same weights, and a third co
 different weights under one slug tomorrow. The honest position is that the key prevents the
 *silent* case and that pooling remains a **judgment about configuration** (channel, check
 set, adapter), which is why §16.3 is labelled observational rather than pooled.
+
+---
+
+## 17. Merged pool — the ox-alpha rollouts are glm-5.3-flash rollouts (17:50)
+
+**level=decision (D7).** Acting on the fact correction. `stealth/ox-alpha` was ZAI's
+GLM-5.3 Flash by the vendor's own retirement notice, so its 51 rollouts are
+`z-ai/glm-5.3-flash` rollouts recorded under a pre-release slug. Re-buying them would be
+paying twice for the same measurement.
+
+```bash
+$ uv run python scripts/prune_pool.py --model z-ai/glm-5.3-flash \
+      --also-model stealth/ox-alpha --drop 2
+model z-ai/glm-5.3-flash  (+ pooled: stealth/ox-alpha)   35 scored rollouts, 6 tasks
+     18 from stealth/ox-alpha      / cand_78856ef8131e
+     17 from z-ai/glm-5.3-flash    / cand_d1c0f1f0f516
+
+task                                  mean    sigma   zero     min   n
+ExampleIsothermalLeakyWell          0.9612   0.0364     0%  0.8873   6
+AdvancedExampleDruckerPrager        0.9109   0.0718     0%  0.8250   6
+TutorialSneddon                     0.1339   0.1160     0%  0.0759   6
+ExampleMandel                       0.2635   0.1477    20%  0.0000   5
+ExampleDPWellbore                   0.6069   0.3255     0%  0.2918   6
+buckleyLeverettProblem              0.6828   0.3439    17%  0.0000   6
+
+minimum detectable effect (95%, 6 seeds):
+  pool                               one arm  arm vs arm
+  all 6 tasks                         0.0688      0.0973
+  drop 2 noisiest (4 tasks)           0.0409      0.0578
+```
+
+**n=18 → n=35 scored, for $0.00**, and the arm-vs-arm MDE on the working pool improves
+from **0.0761 → 0.0578**.
+
+**The pruned pool is unchanged** — `ExampleIsothermalLeakyWell`,
+`AdvancedExampleDruckerPrager`, `TutorialSneddon`, `ExampleMandel` — so `slices.json` and
+the anchor the running search is already using need no revision. The two dropped tasks are
+the same two.
+
+**Assumption stated, as required:** the two slugs served the same weights. The vendor said
+so explicitly. **The one caveat that cannot be closed from here is serving config** — a
+stealth pre-release endpoint could in principle differ in quantisation, sampling defaults
+or context handling from the production slug, and nothing in our data can rule that out.
+What our data *can* say is that the paired contrast between the two arms (§16.3) came back
+**−0.0350 with a CI spanning zero**, so if a serving difference exists it is smaller than
+this design can see.
+
+The two arms are also two *adapters* (`cand_78856ef8131e` carries the
+`kgdToughnessDominated` line and 2 checks; `cand_d1c0f1f0f516` does not and has 5). Pooling
+them for a **noise floor** is defensible precisely because §16.3 found no detectable
+difference between them; pooling them for a **champion comparison** would not be, and is
+not done — the paired comparison in §18 uses `cand_d1c0f1f0f516` alone as the seed.
+
+### 17.1 **CORRECTION — the "2.3× noisier" claim is withdrawn**
+
+§15.5 and the earlier REPORT.md both said `z-ai/glm-5.3-flash` is *"roughly 2.3× noisier
+on the same tasks"* than ox-alpha, comparing an arm-vs-arm MDE of 0.0761 against 0.0330.
+**That is not a finding and it is deleted.** There is one model. The two MDE figures are
+two estimates of the same quantity from n=3 apiece, and the apparent gap is within-model
+variance in a σ estimated from three points — the same instability §16.2 already
+documented when `buckleyLeverettProblem` moved σ 0.0035 → 0.5170 with nothing changed.
+
+The merged n≈6 figures above supersede both. This is the fourth claim withdrawn today
+(§13 P3, §16.1 model×task, §10 the unapplied fix, and now this), and all four came from
+asserting something a measurement could have settled.

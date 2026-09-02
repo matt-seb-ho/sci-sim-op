@@ -1,62 +1,62 @@
 {
   "model": "z-ai/glm-5.3-flash",
-  "n_seeds": 3,
+  "n_seeds": 6,
   "kept": [
-    "ExampleMandel",
     "ExampleIsothermalLeakyWell",
     "AdvancedExampleDruckerPrager",
-    "TutorialSneddon"
+    "TutorialSneddon",
+    "ExampleMandel"
   ],
   "dropped": [
     "ExampleDPWellbore",
     "buckleyLeverettProblem"
   ],
   "per_task": {
-    "ExampleMandel": {
-      "mean": 0.33545,
-      "sigma": 0.008414570696119892,
-      "zero_rate": 0.0,
-      "min": 0.3295,
-      "n": 2
-    },
     "ExampleIsothermalLeakyWell": {
-      "mean": 0.9477333333333333,
-      "sigma": 0.052373116513468376,
+      "mean": 0.9611666666666666,
+      "sigma": 0.03640393751597026,
       "zero_rate": 0.0,
       "min": 0.8873,
-      "n": 3
+      "n": 6
     },
     "AdvancedExampleDruckerPrager": {
-      "mean": 0.9157333333333333,
-      "sigma": 0.07857737163670807,
+      "mean": 0.9108833333333333,
+      "sigma": 0.07180750425036835,
       "zero_rate": 0.0,
       "min": 0.825,
-      "n": 3
+      "n": 6
     },
     "TutorialSneddon": {
-      "mean": 0.17983333333333335,
-      "sigma": 0.16494636502006746,
+      "mean": 0.13386666666666666,
+      "sigma": 0.11602769784265594,
       "zero_rate": 0.0,
-      "min": 0.0772,
-      "n": 3
+      "min": 0.0759,
+      "n": 6
+    },
+    "ExampleMandel": {
+      "mean": 0.26345999999999997,
+      "sigma": 0.14769784358615395,
+      "zero_rate": 0.2,
+      "min": 0.0,
+      "n": 5
     },
     "ExampleDPWellbore": {
-      "mean": 0.5017333333333334,
-      "sigma": 0.36032931234265875,
+      "mean": 0.6069,
+      "sigma": 0.32552910161765874,
       "zero_rate": 0.0,
       "min": 0.2918,
-      "n": 3
+      "n": 6
     },
     "buckleyLeverettProblem": {
-      "mean": 0.5854666666666667,
-      "sigma": 0.516951693423412,
-      "zero_rate": 0.3333333333333333,
+      "mean": 0.6827833333333333,
+      "sigma": 0.34389716146933613,
+      "zero_rate": 0.16666666666666666,
       "min": 0.0,
-      "n": 3
+      "n": 6
     }
   },
-  "mde_kept_one_arm": 0.05382232729236693,
-  "mde_kept_two_arm": 0.0761162652153489,
-  "mde_all_one_arm": 0.12414360881934826,
-  "mde_all_two_arm": 0.1755655752742625
+  "mde_kept_one_arm": 0.04087837738218091,
+  "mde_kept_two_arm": 0.05781075570168583,
+  "mde_all_one_arm": 0.068780349664586,
+  "mde_all_two_arm": 0.09727010332042128
 }

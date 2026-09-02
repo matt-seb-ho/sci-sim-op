@@ -166,16 +166,27 @@ in `BUILTIN_CHECKS` the whole time and neither analysis looked at it.
 
 ### 4.3 Minimum detectable effect — what this pool *can* resolve
 
-| pool | one arm | arm vs arm |
-|---|---|---|
-| all 6 tasks | 0.1241 | **0.1756** |
-| drop 1 noisiest | 0.0922 | 0.1304 |
-| drop 2 noisiest (the pool the search used) | 0.0538 | **0.0761** |
+Computed on the **merged pool** — `stealth/ox-alpha` was ZAI's GLM-5.3 Flash by the
+vendor's own retirement notice, so its 51 rollouts are this model's rollouts under a
+pre-release slug. Pooling them takes the noise floor from n=18 to **n=35 scored, for
+$0.00**.
 
-At 3 seeds, **nothing smaller than ≈0.08 is detectable even on the pruned pool.** Published
-harness-evolution effects in this regime are +1.2 and +0.0 points. **This design cannot
-resolve the effect it is looking for**, and that is a fact about the measurement, not a
-result.
+| pool (n≈6 seeds/task) | one arm | arm vs arm |
+|---|---|---|
+| all 6 tasks | 0.0688 | **0.0973** |
+| drop 1 noisiest | 0.0615 | 0.0870 |
+| **drop 2 noisiest (the pool the search uses)** | 0.0409 | **0.0578** |
+
+At ~6 seeds, **nothing smaller than ≈0.06 is detectable even on the pruned pool.**
+Published harness-evolution effects in this regime are +1.2 and +0.0 points. **This design
+cannot resolve the effect it is looking for**, and that is a fact about the measurement,
+not a result.
+
+*An earlier version of this report claimed this model is "2.3× noisier than ox-alpha".
+**That claim is withdrawn.** There is one model; the two figures were two estimates of the
+same quantity from three rollouts each, and the gap was within-model instability in a σ
+estimated from n=3 — the same instability that moved `buckleyLeverettProblem` from
+σ=0.0035 to σ=0.5170 with nothing changed.*
 
 ---
 
@@ -192,15 +203,21 @@ result.
 4. **σ from n=3 is not a dispersion statistic here.** `buckleyLeverettProblem` moved from
    σ=0.0035 to σ=0.5170 **with the model held constant**. Its three values are 0.9790,
    0.7774, 0.0000 — the σ is carried entirely by one discrete failure (deck written outside
-   the ground-truth-relative path), not by continuous spread. Every MDE in §4.3 inherits
-   this and should be read as indicative.
-5. **`ExampleMandel` is n=2**, not 3 — one rollout was lost to an OpenRouter
+   the ground-truth-relative path), not by continuous spread. The merged pool (n≈6) is
+   steadier but inherits the same mixture; every MDE in §4.3 should be read as indicative.
+5. **The merged pool assumes the two slugs served the same weights.** The vendor said so.
+   **What cannot be checked from here is serving config** — a pre-release endpoint could
+   differ in quantisation or sampling defaults. The paired contrast between the two arms
+   came back −0.0350 with a CI spanning zero, so any such difference is smaller than this
+   design can see. Pooling is used for the **noise floor only**; the champion comparison
+   uses `cand_d1c0f1f0f516` alone.
+6. **`ExampleMandel` is n=2**, not 3 — one rollout was lost to an OpenRouter
    `Upstream idle timeout exceeded`. Its σ=0.0084 is two points and means little.
-6. **`empty_workspace` is a misleading status.** In one case it meant "the agent wrote a
+7. **`empty_workspace` is a misleading status.** In one case it meant "the agent wrote a
    complete deck to the path its own PRIMER specifies, which is not where the scorer
    looks." Left unrenamed so as not to change the dependent variable mid-campaign.
-7. **The August numbers are not a clean control.** They were recorded before the F7 scoring
-   fix and on a pre-release serving channel.
+8. **The August rollouts were recorded before the F7 scoring fix** and on a pre-release
+   serving channel.
 
 ---
 
