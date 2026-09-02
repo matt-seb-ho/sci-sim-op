@@ -916,6 +916,23 @@ class GeosSimulator(SimulatorSpec):
                 except OSError as exc:
                     artifact.parse_errors[rel] = str(exc)
                     continue
+                # Only `.xml` is XML. A `.geos` file is GEOS table data -- a
+                # column of numbers, referenced by <TableFunction>:
+                #
+                #     $ head -1 pressure.geos
+                #     3.086e7
+                #
+                # XML-parsing one produces "syntax error: line 1, column 0",
+                # which `check_parse` then reports as an error. Measured
+                # 2026-08-26 on the highest-scoring rollout in the GEOS pool
+                # (ExampleIsothermalLeakyWell, 0.9802): four such files, four
+                # spurious parse errors, and a stop hook running `parse` would
+                # have blocked a near-perfect deck on its legitimate output.
+                # They are still collected above, because a hygiene check that
+                # cannot see them cannot flag them -- collecting and parsing are
+                # different jobs.
+                if ext != "xml":
+                    continue
                 try:
                     ET.parse(path)
                 except ET.ParseError as exc:

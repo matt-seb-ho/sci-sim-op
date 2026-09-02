@@ -541,7 +541,7 @@ def test_subprocess_runner_exports_the_stop_policy(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     cand = make_candidate(retries=5, checks=("parse", "geosx_validate"), shape="errors_plus_tables")
     runner = SubprocessRunner(FakeSpec(), cfg)
-    result_dir = runner.result_dir(runner.run_name(cand, 1), "t1")
+    result_dir = runner.result_dir(runner.run_name(cand, 1, "t1"), "t1")
     fake = FakeCommand(result_dir)
     runner = SubprocessRunner(FakeSpec(), cfg, command_runner=fake)
 
@@ -570,7 +570,7 @@ def test_stop_policy_with_validator_off_is_exported_too(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     cand = make_candidate(retries=0, checks=("parse",))
     runner = SubprocessRunner(FakeSpec(), cfg)
-    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1), "t1"))
+    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1, "t1"), "t1"))
     runner = SubprocessRunner(FakeSpec(), cfg, command_runner=fake)
     runner.run(cand, "t1", 1)
     _, env = fake.calls[0]
@@ -584,7 +584,7 @@ def test_nonzero_exit_still_yields_a_score(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     cand = make_candidate()
     runner = SubprocessRunner(FakeSpec(), cfg)
-    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1), "t1"), returncode=1)
+    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1, "t1"), "t1"), returncode=1)
     runner = SubprocessRunner(FakeSpec(), cfg, command_runner=fake)
 
     rollout = runner.run(cand, "t1", 1)
@@ -599,7 +599,7 @@ def test_timeout_yields_a_zero_not_an_exception(tmp_path: Path) -> None:
     cand = make_candidate()
     runner = SubprocessRunner(FakeSpec(), cfg)
     fake = FakeCommand(
-        runner.result_dir(runner.run_name(cand, 1), "t1"),
+        runner.result_dir(runner.run_name(cand, 1, "t1"), "t1"),
         returncode=124,
         write=False,
         timed_out=True,
@@ -618,7 +618,7 @@ def test_empty_workspace_scores_zero_with_a_reason(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     cand = make_candidate()
     runner = SubprocessRunner(FakeSpec(), cfg)
-    result_dir = runner.result_dir(runner.run_name(cand, 1), "t1")
+    result_dir = runner.result_dir(runner.run_name(cand, 1, "t1"), "t1")
     (result_dir / "inputs").mkdir(parents=True)
 
     fake = FakeCommand(result_dir, write=False)
@@ -631,7 +631,7 @@ def test_scorer_crash_is_a_zero_not_a_lost_rollout(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     cand = make_candidate()
     runner = SubprocessRunner(RaisingSpec(), cfg)
-    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1), "t1"))
+    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1, "t1"), "t1"))
     runner = SubprocessRunner(RaisingSpec(), cfg, command_runner=fake)
 
     rollout = runner.run(cand, "t1", 1)
@@ -643,7 +643,7 @@ def test_cost_and_validator_events_come_off_disk(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     cand = make_candidate()
     runner = SubprocessRunner(FakeSpec(), cfg)
-    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1), "t1"))
+    fake = FakeCommand(runner.result_dir(runner.run_name(cand, 1, "t1"), "t1"))
     runner = SubprocessRunner(FakeSpec(), cfg, command_runner=fake)
 
     rollout = runner.run(cand, "t1", 1)
@@ -743,3 +743,62 @@ def test_deck_author_is_an_overridable_seam(tmp_path: Path) -> None:
         "quality="
     )
     assert (tmp_path / "ground_truth" / "t1" / "gt.txt").is_file()
+
+
+# --- the launcher's silent failure ------------------------------------------
+
+
+def test_a_launcher_failure_is_not_read_as_a_model_failure():
+    """repo3's launcher fails tasks and exits 0; a 0 score would be blamed on the
+    candidate, which is a confound the search cannot see or correct."""
+    from harness_evolve.runners.subprocess import harness_failure
+
+    stdout = (
+        "[  1/1] \x1b[91mERROR         \x1b[0m  agent  ExampleMandel  "
+        "([Errno 13] Permission denied: '/data/.../tmp_geos/geos_eval_x')\n"
+        "\x1b[1mDone\x1b[0m: \x1b[92m0 succeeded\x1b[0m, \x1b[91m1 failed\x1b[0m / 1 total\n"
+        "\x1b[91mFailed tasks:\x1b[0m\n"
+        "  [error] agent / ExampleMandel: [Errno 13] Permission denied\n"
+    )
+    reason = harness_failure(stdout)
+    assert reason is not None
+    assert "Permission denied" in reason
+
+
+def test_a_clean_launcher_run_reports_no_failure():
+    from harness_evolve.runners.subprocess import harness_failure
+
+    assert harness_failure("Done: 1 succeeded, 0 failed / 1 total\n") is None
+    assert harness_failure("") is None
+
+
+def test_the_run_name_is_unique_per_task_because_the_launcher_locks_on_it(tmp_path: Path) -> None:
+    """repo3 takes a per-run-name PID lock; without the task in the name, two
+    concurrent rollouts of one candidate collide and all but one exit 2."""
+    cfg = _config(tmp_path)
+    cand = make_candidate()
+    runner = SubprocessRunner(FakeSpec(), cfg)
+    assert runner.run_name(cand, 1, "t1") != runner.run_name(cand, 1, "t2")
+    assert "t1" in runner.run_name(cand, 1, "t1")
+    # Without a task the historical name is unchanged.
+    assert runner.run_name(cand, 1) == f"{cfg.run_prefix}-{cand.cid}-s1"
+
+
+def test_a_launcher_that_exits_nonzero_is_not_blamed_on_the_candidate(
+    tmp_path: Path,
+) -> None:
+    """A held run lock, a missing image, an unreadable path -- the agent never
+    ran, so a 0 here is not evidence about the candidate."""
+    from harness_evolve.runners.subprocess import CommandResult
+
+    cfg = _config(tmp_path)
+    cand = make_candidate()
+
+    def failing(argv, env, timeout, cwd):
+        return CommandResult(returncode=2, stdout="",
+                             stderr="RunLockHeld: another process holds it")
+
+    runner = SubprocessRunner(FakeSpec(), cfg, command_runner=failing)
+    rollout = runner.run(cand, "t1", seed=1)
+    assert rollout.score.status == "harness_error"
+    assert rollout.error and "exited 2" in rollout.error

@@ -35,6 +35,7 @@ from __future__ import annotations
 import difflib
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from harness_evolve.hygiene.corpus import (
@@ -85,6 +86,24 @@ class GateConfig:
     near_miss_ratio: float = 0.86
     #: Task-shaped rows required before a table is called a lookup table.
     lookup_table_rows: int = 3
+    #: Identifiers that are public API of the simulator, exempted from the
+    #: rare-token rule. **Empty by default: this changes what counts as
+    #: contamination, so it is opt-in and must be a recorded decision.**
+    #:
+    #: Why it exists. The rare-token rule reasons "a token in one deck out of
+    #: fifty is the signal, a token in all fifty is vocabulary" -- and a GEOS
+    #: constitutive model used by exactly one physics type looks like the former
+    #: while being the latter. Measured 2026-08-26: the hand-designed cheatsheet
+    #: was blocked on `extendeddruckerprager`, `traction`,
+    #: `compressiblesinglephasefluid` and twelve more, all of which appear in
+    #: GEOS's own `schema.xsd` (ExtendedDruckerPrager: 24 occurrences) and are
+    #: printed back by `geosx --validate-input` in its valid-name table. The
+    #: agent already reads /geos_lib and calls that validator, so these names
+    #: cannot be leakage -- they are information about the API, not the answer.
+    #: Consequence of leaving it empty: no useful GEOS cheatsheet can pass.
+    #:
+    #: Build one with :func:`public_vocabulary_from`. Tokens must be lowercase.
+    public_vocabulary: frozenset[str] = frozenset()
     #: Severity for a simulator-artifact filename that is *not* a known ground
     #: truth. Blocking by default: incident 1 is precisely the case where the
     #: leaked name was absent from the blocklist the gate was checking against.
@@ -563,6 +582,38 @@ def rule_structural_fingerprint(
     return _cap(findings, cfg, "structural_fingerprint", path)
 
 
+def public_vocabulary_from(
+    paths: "Sequence[Path]", *, min_len: int = 6, max_files: int = 4000
+) -> frozenset[str]:
+    """Lowercased identifiers appearing in the simulator's own public sources.
+
+    Point it at a schema file and/or a source tree. Anything named there is
+    public API the agent can read directly, so its presence in an adapter is
+    vocabulary rather than a leak. See :attr:`GateConfig.public_vocabulary`.
+
+    Deliberately *not* wired in by default anywhere: enabling it is a decision
+    about what contamination means, and that belongs to a person.
+    """
+    ident = re.compile(r"[A-Za-z][A-Za-z0-9_]{%d,}" % (min_len - 1))
+    vocab: set[str] = set()
+    seen = 0
+    for root in paths:
+        root = Path(root)
+        files = [root] if root.is_file() else sorted(root.rglob("*"))
+        for f in files:
+            if not f.is_file():
+                continue
+            seen += 1
+            if seen > max_files:
+                break
+            try:
+                text = f.read_text(errors="replace")
+            except OSError:
+                continue
+            vocab.update(m.group(0).lower() for m in ident.finditer(text))
+    return frozenset(vocab)
+
+
 def rule_rare_token_overlap(
     path: str, text: str, corpus: GroundTruthCorpus, cfg: GateConfig
 ) -> list[Finding]:
@@ -578,7 +629,10 @@ def rule_rare_token_overlap(
     if corpus.n_decks < 2:
         return []
     max_df = max(1, round(cfg.rare_token_df_fraction * corpus.n_decks))
-    cand = {t for t in word_tokens(text) if len(t) >= cfg.min_token_len}
+    cand = {
+        t for t in word_tokens(text)
+        if len(t) >= cfg.min_token_len and t not in cfg.public_vocabulary
+    }
     hits = [
         t for t in cand
         if 0 < corpus.token_df.get(t, 0) <= max_df and not t.isdigit()
@@ -818,6 +872,58 @@ ALL_RULES: tuple[tuple[str, Rule], ...] = (
 # ---------------------------------------------------------------------------
 # entry points
 # ---------------------------------------------------------------------------
+
+
+#: Rules demoted to ``warn`` under :func:`train_profile`. Still reported, never
+#: blocking. See that function for the argument.
+TRAIN_PROFILE_OVERRIDES: dict[str, Severity] = {
+    # Vocabulary, not answers. A GEOS cheatsheet must name GEOS constructs, and
+    # a constitutive model used by one physics type is "rare" in the deck corpus
+    # while being public API the agent reads from schema.xsd and gets printed
+    # back by the validator.
+    "rare_token_overlap": "warn",
+    # Fuzzy matches to deck filenames. Example filenames appear throughout the
+    # documentation the agent is given.
+    "near_miss_filename": "warn",
+    # Directory names like `inputs` -- which is the task's required output path.
+    "path_component": "warn",
+    # A bare task id in prose is usually an example, not an answer: the observed
+    # instance was "verify specific benchmark attributes like `kgdToughnessDominated`
+    # via RAG", which tells the agent to look something up rather than what to
+    # write. A task id *paired with content* is a different thing and is still an
+    # error -- see `lookup_table`, `task_id_table` and `lookup_language`, which are
+    # the rules that actually caught the quarantined v4 adapter.
+    "task_id": "warn",
+}
+
+
+def train_profile(**kw: Any) -> GateConfig:
+    """A gate tuned for optimising *on the training split*.
+
+    The reframing this implements: contamination here is the standard ML problem
+    of **overfitting**, and the standard defence is a held-out split, not a
+    stricter filter on the training artifact. If a search overfits the training
+    tasks, that shows up as a failure to improve on held-out tasks -- which is a
+    measurement we can make, rather than a property we have to police.
+
+    So this profile blocks only what is *truly cheating*: a task->answer lookup
+    table, verbatim ground-truth deck content, ground-truth numeric literals, a
+    copied structural fingerprint, or an explicitly blocklisted file. Everything
+    statistical or fuzzy is demoted to a warning -- still recorded, never
+    blocking.
+
+    The motivating false positives, measured 2026-08-26: the hand-designed seed
+    adapter was blocked on `extendeddruckerprager` (24 occurrences in GEOS's own
+    schema.xsd) and on a line reading "verify specific benchmark attributes like
+    `kgdToughnessDominated` via RAG". Neither carries an answer, and a gate that
+    blocks those blocks every useful GEOS cheatsheet -- a false-positive rate
+    that makes the search impossible to run while catching nothing real.
+
+    **The quarantined v4 adapter still blocks under this profile**, which is the
+    test that keeps the relaxation honest; see the test suite.
+    """
+    overrides = {**TRAIN_PROFILE_OVERRIDES, **(kw.pop("severity_overrides", None) or {})}
+    return GateConfig(severity_overrides=overrides, **kw)
 
 
 def check_texts(

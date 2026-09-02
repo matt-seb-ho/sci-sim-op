@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
@@ -98,6 +99,9 @@ class RecordingRunner(RolloutRunner):
         self.replay = replay
         self.strict_writes = strict_writes
         self.stats = RecordingStats()
+        # ParallelRunner drives this from a thread pool; the corpus is what a
+        # resumed run depends on, so its writes are serialised.
+        self._write_lock = threading.Lock()
         self.corpus_path.parent.mkdir(parents=True, exist_ok=True)
         self._recorded: dict[tuple[CandidateId, TaskId, int], RolloutRecord] = {}
         self._load_existing()
@@ -137,7 +141,16 @@ class RecordingRunner(RolloutRunner):
             )
 
     def _append(self, rollout: Rollout) -> bool:
-        """Append one rollout durably. Returns whether it is now on disk."""
+        """Append one rollout durably. Returns whether it is now on disk.
+
+        Locked because ``ParallelRunner`` calls this from several threads at
+        once: two interleaved appends produce a line that is not JSON, and the
+        corpus is the artifact a resumed run depends on.
+        """
+        with self._write_lock:
+            return self._append_locked(rollout)
+
+    def _append_locked(self, rollout: Rollout) -> bool:
         try:
             payload = json.dumps(RolloutRecord.from_rollout(rollout).to_dict())
             with self.corpus_path.open("a", encoding="utf-8") as fh:

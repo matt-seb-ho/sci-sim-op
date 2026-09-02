@@ -6,3 +6,7 @@ __pycache__/
 # search working dirs: candidates, eval cache, run artifacts
 .evolve/
 runs/
+
+# provider credentials
+.env
+.env.local

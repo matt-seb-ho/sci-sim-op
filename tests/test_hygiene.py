@@ -781,3 +781,181 @@ def test_cli_exits_non_zero_on_the_quarantined_adapter(tmp_path: Path) -> None:
     )
     assert code == 1
     assert json.loads(out.read_text())["n_blocking"] > 0
+
+
+def _corpus_with_decks(decks: dict) -> GroundTruthCorpus:
+    """A finalized corpus from raw deck texts, for the rare-token rule."""
+    return GroundTruthCorpus(deck_texts=dict(decks)).finalize()
+
+
+# --- the public-vocabulary exemption (opt-in) --------------------------------
+
+
+def test_the_rare_token_rule_blocks_a_domain_cheatsheet_by_default():
+    """Documents the measured false positive, so the behaviour is pinned.
+
+    On 2026-08-26 the hand-designed GEOS cheatsheet was blocked on identifiers
+    that are public GEOS API -- `ExtendedDruckerPrager` occurs 24 times in GEOS's
+    own schema.xsd. Default behaviour is unchanged; this test records it.
+    """
+    from harness_evolve.hygiene.gate import GateConfig, rule_rare_token_overlap
+
+    corpus = _corpus_with_decks({
+        "t1/a.xml": "<Problem><ExtendedDruckerPrager name='rock'/></Problem>",
+        "t2/b.xml": "<Problem><CompressibleSinglePhaseFluid name='water'/></Problem>",
+        "t3/c.xml": "<Problem><Traction name='load'/></Problem>",
+        "t4/d.xml": "<Problem><ViscoDruckerPrager name='visco'/></Problem>",
+        "t5/e.xml": "<Problem><Mesh name='m'/></Problem>",
+    })
+    cheatsheet = (
+        "- Use ExtendedDruckerPrager for plastic rock.\n"
+        "- Use CompressibleSinglePhaseFluid for the fluid model.\n"
+        "- Apply Traction for the boundary load.\n"
+        "- ViscoDruckerPrager adds rate dependence.\n"
+    )
+    findings = rule_rare_token_overlap(
+        "memory/cheatsheet.md", cheatsheet, corpus,
+        GateConfig(rare_token_error=3, rare_token_warn=2),
+    )
+    assert findings and findings[0].severity == "error"
+
+
+def test_public_api_names_can_be_exempted_on_purpose():
+    """Enabling the exemption is a decision about what contamination means."""
+    from harness_evolve.hygiene.gate import GateConfig, rule_rare_token_overlap
+
+    corpus = _corpus_with_decks({
+        "t1/a.xml": "<Problem><ExtendedDruckerPrager name='rock'/></Problem>",
+        "t2/b.xml": "<Problem><CompressibleSinglePhaseFluid name='water'/></Problem>",
+        "t3/c.xml": "<Problem><Traction name='load'/></Problem>",
+        "t4/d.xml": "<Problem><ViscoDruckerPrager name='visco'/></Problem>",
+        "t5/e.xml": "<Problem><Mesh name='m'/></Problem>",
+    })
+    cheatsheet = (
+        "- Use ExtendedDruckerPrager for plastic rock.\n"
+        "- Use CompressibleSinglePhaseFluid for the fluid model.\n"
+        "- Apply Traction for the boundary load.\n"
+        "- ViscoDruckerPrager adds rate dependence.\n"
+    )
+    public = frozenset({
+        "extendeddruckerprager", "compressiblesinglephasefluid",
+        "viscodruckerprager", "boundary", "plastic",
+    })
+    findings = rule_rare_token_overlap(
+        "memory/cheatsheet.md", cheatsheet, corpus,
+        GateConfig(rare_token_error=3, rare_token_warn=2, public_vocabulary=public),
+    )
+    assert findings == []
+
+
+def test_the_exemption_does_not_hide_a_real_leak():
+    """A ground-truth-specific token is not public API and must still fire."""
+    from harness_evolve.hygiene.gate import GateConfig, rule_rare_token_overlap
+
+    corpus = _corpus_with_decks({
+        "t1/a.xml": "<Problem><ExtendedDruckerPrager name='kgdedgebased'/></Problem>",
+        "t2/b.xml": "<Problem><Traction name='wellboreSpecific'/></Problem>",
+        "t3/c.xml": "<Problem><Mesh name='mandelPrism6'/></Problem>",
+        "t4/d.xml": "<Problem><Mesh name='terzaghiDirect'/></Problem>",
+    })
+    leaky = ("kgdedgebased wellboreSpecific mandelPrism6 terzaghiDirect "
+             "ExtendedDruckerPrager Traction")
+    findings = rule_rare_token_overlap(
+        "memory/cheatsheet.md", leaky, corpus,
+        GateConfig(rare_token_error=3, rare_token_warn=2,
+                   public_vocabulary=frozenset({"extendeddruckerprager", "traction"})),
+    )
+    assert findings and findings[0].severity == "error"
+
+
+def test_public_vocabulary_is_extracted_from_real_sources(tmp_path):
+    from harness_evolve.hygiene.gate import public_vocabulary_from
+
+    schema = tmp_path / "schema.xsd"
+    schema.write_text('<xsd:element name="ExtendedDruckerPrager" type="x"/>')
+    vocab = public_vocabulary_from([schema])
+    assert "extendeddruckerprager" in vocab
+    assert "x" not in vocab          # below min_len
+
+
+# --- the train profile: overfitting, not policing ---------------------------
+
+
+def test_the_train_profile_lets_a_legitimate_domain_cheatsheet_through():
+    """The false positives that made the search impossible to run.
+
+    Measured 2026-08-26: the hand-designed seed adapter was blocked on
+    `extendeddruckerprager` (public GEOS API, 24 hits in schema.xsd) and on
+    "verify specific benchmark attributes like `kgdToughnessDominated` via RAG"
+    -- advice to look something up, not an answer.
+    """
+    from harness_evolve.hygiene.gate import check_texts, train_profile
+
+    corpus = _corpus_with_decks({
+        "kgdToughnessDominated/kgd.xml": "<Problem><ExtendedDruckerPrager name='r'/></Problem>",
+        "t2/b.xml": "<Problem><CompressibleSinglePhaseFluid name='w'/></Problem>",
+        "t3/c.xml": "<Problem><Traction name='l'/></Problem>",
+        "t4/d.xml": "<Problem><Mesh name='m'/></Problem>",
+    })
+    corpus.task_ids.add("kgdToughnessDominated")
+    texts = {"memory/cheatsheet.md": (
+        "- Use ExtendedDruckerPrager for plastic rock.\n"
+        "- Use CompressibleSinglePhaseFluid for the fluid model.\n"
+        "- Apply Traction for the boundary load.\n"
+        "- DO NOT invent attribute names; verify specific benchmark attributes "
+        "like `kgdToughnessDominated` via RAG.\n"
+    )}
+
+    strict = check_texts(texts, corpus)
+    relaxed = check_texts(texts, corpus, config=train_profile())
+
+    assert strict.blocked, "the strict profile is what motivated the relaxation"
+    assert not relaxed.blocked
+    # Demoted, not discarded -- the findings are still on the record.
+    assert relaxed.warnings
+
+
+def test_the_train_profile_still_blocks_a_task_to_answer_lookup_table():
+    """The guardrail that keeps the relaxation honest.
+
+    A relaxed gate is only defensible if it still catches the artifact the
+    quarantine exists for: v4's cheatsheet is a task->ground-truth lookup table.
+    """
+    from harness_evolve.hygiene.gate import check_texts, train_profile
+
+    corpus = _corpus_with_decks({
+        "ExampleMandel/mandel.xml": "<Problem><Mesh name='m'/></Problem>",
+        "TutorialSneddon/sneddon.xml": "<Problem><Mesh name='s'/></Problem>",
+        "kgdExperimentValidation/kgd.xml": "<Problem><Mesh name='k'/></Problem>",
+    })
+    corpus.task_ids.update(
+        {"ExampleMandel", "TutorialSneddon", "kgdExperimentValidation"}
+    )
+    lookup = {"memory/cheatsheet.md": (
+        "| task | deck |\n"
+        "| --- | --- |\n"
+        "| ExampleMandel | PoroElastic_Mandel_base.xml |\n"
+        "| TutorialSneddon | Sneddon_embeddedFrac_base.xml |\n"
+        "| kgdExperimentValidation | kgdValidation_benchmark.xml |\n"
+    )}
+    report = check_texts(lookup, corpus, config=train_profile())
+    assert report.blocked
+    assert {"lookup_table", "task_id_table"} & {f.source for f in report.errors}
+
+
+def test_the_train_profile_still_blocks_verbatim_deck_content():
+    """Copied deck text is an answer regardless of which split you are on."""
+    from harness_evolve.hygiene.gate import check_texts, train_profile
+
+    corpus = _corpus_with_decks({"ExampleMandel/mandel.xml": DECK_MANDEL})
+    report = check_texts({"memory/cheatsheet.md": DECK_MANDEL}, corpus,
+                         config=train_profile())
+    assert report.blocked
+
+
+def test_the_train_profile_can_be_tightened_per_rule():
+    from harness_evolve.hygiene.gate import train_profile
+
+    cfg = train_profile(severity_overrides={"rare_token_overlap": "error"})
+    assert cfg.severity_overrides["rare_token_overlap"] == "error"
+    assert cfg.severity_overrides["path_component"] == "warn"

@@ -36,6 +36,7 @@ from harness_evolve.evaluation.baselines import BudgetLedger  # noqa: E402
 from harness_evolve.evaluation.slices import build_slices, stats_from_rollouts  # noqa: E402
 from harness_evolve.evidence.corpus import build_evidence  # noqa: E402
 from harness_evolve.hygiene.corpus import GroundTruthCorpus  # noqa: E402
+from harness_evolve.integration import DEFAULT_RECEIPT, check_r1  # noqa: E402
 from harness_evolve.hygiene.gate import check_candidate  # noqa: E402
 from harness_evolve.proposers.scripted import RandomEditProposer  # noqa: E402
 from harness_evolve.runners.recording import RecordingRunner  # noqa: E402
@@ -96,13 +97,15 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     env = policy.to_env()
     for k, v in env.items():
         print(f"  {k}={v}")
-    problems.append(
-        "UNVERIFIED: the runner must forward GEOS_EVOLVE_FEEDBACK_SHAPE and "
-        "GEOS_EVOLVE_CHECKS into the container, and the hook must read them. "
-        "See docs/INTEGRATION_REQUIREMENTS.md R1. Until this is verified by "
-        "diffing hook output between two feedback shapes, any result that "
-        "varies the stop policy is measuring nothing."
-    )
+    # Not an unconditional blocker any more: R1 is now a receipt written by
+    # repo3's verify_r1_feedback_channel.py, and checked here against the SHA of
+    # the hook actually on disk. Editing the hook invalidates it, which is the
+    # only way a green check on an observation stays honest.
+    status = check_r1(REPO_ROOT / DEFAULT_RECEIPT)
+    if status.verified:
+        print(f"  R1 VERIFIED: {status.reason}")
+    else:
+        problems.append(f"R1 not verified: {status.reason}")
 
     print("\n== verdict ==")
     for n in notes:

@@ -414,8 +414,18 @@ class Search:
                 report = self.hygiene(child)
                 if getattr(report, "blocked", False):
                     result.n_hygiene_blocked += 1
-                    findings = getattr(report, "findings", [])
-                    reason = f"hygiene: {findings[0] if findings else 'blocked'}"
+                    # The *errors* are the verdict; warnings never block. This
+                    # used to report findings[0], which is whichever rule ran
+                    # first -- so a run blocked by a task-id leak was logged as
+                    # a benign path-component warning, and the decision log
+                    # pointed at the wrong file. Report every blocking finding.
+                    errors = getattr(report, "errors", None)
+                    if errors is None:
+                        errors = [f for f in getattr(report, "findings", [])
+                                  if getattr(f, "severity", "") == "error"]
+                    reason = ("hygiene: "
+                              + ("; ".join(str(f) for f in errors[:3])
+                                 if errors else "blocked"))
                     self.archive.add(
                         ArchiveEntry(child, accepted=False, reason=reason,
                                      generation=child.generation)

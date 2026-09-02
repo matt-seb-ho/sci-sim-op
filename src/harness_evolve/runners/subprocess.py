@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -230,7 +231,7 @@ class SubprocessRunner(RolloutRunner):
     def run(self, candidate: "Candidate", task: TaskId, seed: int = 1) -> Rollout:
         """Run and score. Scoring happens on every path, including failure."""
         cfg = self.config
-        run_name = self.run_name(candidate, seed)
+        run_name = self.run_name(candidate, seed, task)
         adapter_dir = self.materialize(candidate, run_name)
         result_dir = self.result_dir(run_name, task)
         env = self.child_env(candidate, task, seed)
@@ -242,6 +243,22 @@ class SubprocessRunner(RolloutRunner):
         # was structural, not a typo: scoring lived past a branch that was never
         # taken.
         score = self.score_result_dir(result_dir, task)
+        # Checked before the returncode branch because the returncode is 0 here:
+        # the launcher reports its own failures in stdout and exits successfully.
+        infra = harness_failure(proc.stdout) if proc.ok else None
+        # A launcher that exits non-zero without timing out never got as far as
+        # running the agent -- a held run lock, an unreadable path, a missing
+        # image. Attributing that to the candidate is the same confound as the
+        # exit-0 case above. A *timeout* is different and stays a real outcome:
+        # the adapter can genuinely make an agent slow.
+        if (infra is None and not proc.ok and not proc.timed_out
+                and score.status in ("no_workspace", "empty_workspace")):
+            infra = self._error_summary(proc)
+        if infra is not None:
+            score = replace(
+                score, status="harness_error",
+                detail={**dict(score.detail), "harness_error": infra},
+            )
         if not proc.ok:
             score = _annotate(
                 score,
@@ -262,13 +279,27 @@ class SubprocessRunner(RolloutRunner):
             artifacts_dir=str(result_dir) if result_dir.exists() else None,
             events_path=str(events_path) if events_path.is_file() else None,
             validator_events=self.collect_validator_events(result_dir),
-            error=None if proc.ok else self._error_summary(proc),
+            error=(f"harness reported failure while exiting 0: {infra}"
+                   if infra is not None
+                   else None if proc.ok else self._error_summary(proc)),
         )
 
     # -- the pieces, each independently testable --------------------------
-    def run_name(self, candidate: "Candidate", seed: int) -> str:
-        """Result namespace. Seed is in the name so repeats never overwrite."""
-        return f"{self.config.run_prefix}-{candidate.cid}-s{seed}"
+    def run_name(self, candidate: "Candidate", seed: int,
+                 task: TaskId | None = None) -> str:
+        """Result namespace. Seed is in the name so repeats never overwrite.
+
+        The task is in it as well, and that is not cosmetic: repo3's launcher
+        takes a **per-run-name PID lock**
+        (``<results_root>/.run_locks/<run_name>.lock``, added after the run9
+        incident where a second invocation SIGTERMed twelve in-flight tasks). So
+        two rollouts of the same candidate and seed on *different tasks* would
+        collide on the lock, and all but one would exit 2 having done nothing --
+        which is exactly what happened the first time these were run
+        concurrently. Measured 2026-08-26.
+        """
+        stem = f"{self.config.run_prefix}-{candidate.cid}-s{seed}"
+        return f"{stem}-{task}" if task else stem
 
     def result_dir(self, run_name: str, task: TaskId) -> Path:
         """Where the harness lands results: ``<root>/<agent>/<run>/<task>/``."""
@@ -462,6 +493,36 @@ class SubprocessRunner(RolloutRunner):
         if proc.timed_out:
             return "harness timed out"
         return f"harness exited {proc.returncode}: {proc.stderr.strip()[-500:]}"
+
+
+#: Strips the launcher's colour codes before its summary is parsed.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+#: repo3's launcher prints this and then **exits 0**, even when every task
+#: failed. Measured 2026-08-26: an unwritable `--tmp-geos-parent` failed the
+#: only task with `[Errno 13] Permission denied` and returned 0.
+_HARNESS_SUMMARY_RE = re.compile(r"Done:\s*(\d+)\s+succeeded,\s*(\d+)\s+failed")
+_HARNESS_FAILED_TASK_RE = re.compile(r"\[error\]\s*(.+)")
+
+
+def harness_failure(stdout: str) -> str | None:
+    """Did the launcher fail the task while still exiting 0?
+
+    This matters more than it looks. A harness that cannot start the container
+    produces an empty workspace, an empty workspace scores 0, and a 0 is
+    indistinguishable from "the model wrote nothing" -- so an infrastructure
+    outage is silently attributed to the candidate under evaluation. A search
+    would then reject good candidates for a reason that has nothing to do with
+    them, and the run would look entirely normal.
+
+    Returning a reason here is what lets a rollout say "do not count me".
+    """
+    clean = _ANSI_RE.sub("", stdout or "")
+    match = _HARNESS_SUMMARY_RE.search(clean)
+    if not match or int(match.group(2)) == 0:
+        return None
+    detail = _HARNESS_FAILED_TASK_RE.search(clean)
+    return (detail.group(1).strip() if detail
+            else f"{match.group(2)} task(s) failed in the launcher")
 
 
 def _annotate(score: Score, extra: Mapping[str, Any]) -> Score:

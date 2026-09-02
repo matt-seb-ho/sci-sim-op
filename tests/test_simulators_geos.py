@@ -512,3 +512,55 @@ def test_validate_runs_the_real_geosx_binary(tmp_path):
     assert sim.preflight() == []
     findings = sim.validate(sim.parse(workspace), workspace)
     assert findings and all(f.source == "geosx_validate" for f in findings)
+
+
+def test_geos_table_data_is_collected_but_not_xml_parsed(tmp_path):
+    """`.geos` files are columns of numbers, not XML.
+
+    Measured 2026-08-26 on ExampleIsothermalLeakyWell (the best-scoring rollout
+    in the GEOS pool, 0.9802): it wrote pressure.geos / xlin.geos / ylin.geos /
+    zlin.geos alongside a valid deck, and every one produced
+    "syntax error: line 1, column 0". A stop policy running the `parse` check
+    would have blocked a near-perfect deck on its own legitimate output.
+    """
+    from harness_evolve.simulators.base import SimulatorRegistry
+
+    (tmp_path / "deck.xml").write_text(
+        '<Problem>\n  <Mesh name="m"/>\n</Problem>\n'
+    )
+    (tmp_path / "pressure.geos").write_text("3.086e7\n3.086e7\n")
+    (tmp_path / "xlin.geos").write_text("-500\n500\n")
+
+    artifact = SimulatorRegistry.get("geos").parse(tmp_path)
+
+    # Collected -- a hygiene check that cannot see them cannot flag them.
+    assert "pressure.geos" in artifact.files
+    assert "xlin.geos" in artifact.files
+    # But not reported as broken XML.
+    assert artifact.parse_errors == {}
+    assert artifact.parses
+
+
+def test_a_genuinely_broken_deck_still_reports_a_parse_error(tmp_path):
+    from harness_evolve.simulators.base import SimulatorRegistry
+
+    (tmp_path / "deck.xml").write_text("<Problem><Mesh></Problem>\n")
+    (tmp_path / "table.geos").write_text("1.0\n")
+
+    artifact = SimulatorRegistry.get("geos").parse(tmp_path)
+    assert "deck.xml" in artifact.parse_errors
+    assert "table.geos" not in artifact.parse_errors
+
+
+def test_the_parse_check_passes_a_deck_with_table_data(tmp_path):
+    """End to end: the check the stop policy runs must not fire on this."""
+    from harness_evolve.checks.api import CheckContext, run_checks
+    from harness_evolve.simulators.base import SimulatorRegistry
+
+    sim = SimulatorRegistry.get("geos")
+    (tmp_path / "deck.xml").write_text('<Problem>\n  <Mesh name="m"/>\n</Problem>\n')
+    (tmp_path / "pressure.geos").write_text("3.086e7\n")
+
+    artifact = sim.parse(tmp_path)
+    ctx = CheckContext.from_simulator(sim, tmp_path)
+    assert run_checks(artifact, ctx, ["parse"]) == []

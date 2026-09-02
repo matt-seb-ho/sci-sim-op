@@ -26,7 +26,9 @@ from harness_evolve.evidence.corpus import RoundEvidence, TaskEvidence  # noqa: 
 from harness_evolve.evidence.directives import (  # noqa: E402
     derive_constraints, parse_validator_output,
 )
-from harness_evolve.proposers.backends import AnthropicBackend  # noqa: E402
+from harness_evolve.proposers.backends import (  # noqa: E402
+    AnthropicBackend, free_window_backend,
+)
 from harness_evolve.proposers.base import Demonstration  # noqa: E402
 from harness_evolve.proposers.llm import LLMProposer  # noqa: E402
 
@@ -40,14 +42,21 @@ Error: XML Node Solvers/SinglePhasePoromechanics contains unused attribute 'grav
 
 
 def load_env() -> None:
-    """Read ~/.env if the key is not already exported."""
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return
-    env = Path.home() / ".env"
-    if env.exists():
+    """Populate credentials from the repo's .env, then ~/.env.
+
+    Was ANTHROPIC_API_KEY-only, which silently left the free roster unconfigured
+    -- `free_window_backend()` then reported "no route is configured" on a box
+    where both keys were sitting in the file it had just read.
+    """
+    for env in (REPO_ROOT / ".env", Path.home() / ".env"):
+        if not env.exists():
+            continue
         for line in env.read_text().splitlines():
-            if line.startswith("ANTHROPIC_API_KEY="):
-                os.environ["ANTHROPIC_API_KEY"] = line.split("=", 1)[1].strip()
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
 
 
 def build_candidate() -> Candidate:
@@ -116,10 +125,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", default="claude-opus-5")
     ap.add_argument("--effort", default="high")
+    # The free-window campaign runs the proposer on the free roster, and whether
+    # *that* model can follow this contract is a different question from whether
+    # Opus can. It is the one that decides whether the search proposes anything.
+    ap.add_argument("--free-roster", action="store_true",
+                    help="propose on the free roster (stealth/ox-alpha) instead")
     args = ap.parse_args()
 
     load_env()
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not args.free_roster and not os.environ.get("ANTHROPIC_API_KEY"):
         print("ANTHROPIC_API_KEY is not available; nothing to smoke test.")
         return 2
 
@@ -130,7 +144,8 @@ def main() -> int:
         print(f"  {c.prose}")
 
     proposer = LLMProposer(
-        backend=AnthropicBackend(model=args.model, effort=args.effort),
+        backend=(free_window_backend() if args.free_roster
+                 else AnthropicBackend(model=args.model, effort=args.effort)),
         derived_constraints=constraints,
     )
     prompt = proposer.build_prompt(
@@ -142,7 +157,8 @@ def main() -> int:
             notes="reported the events and outputs setup as the hardest part",
         )],
     )
-    print(f"\nprompt: {len(prompt)} chars. Calling {args.model} (effort={args.effort})...\n")
+    label = "free roster (stealth/ox-alpha)" if args.free_roster else args.model
+    print(f"\nprompt: {len(prompt)} chars. Calling {label}...\n")
 
     child = proposer.propose(
         candidate, build_evidence(), [],

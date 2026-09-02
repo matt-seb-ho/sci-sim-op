@@ -529,3 +529,49 @@ def test_the_root_guard_still_catches_a_real_cumulative_regression():
     )
     assert not verdict.accepted
     assert "cumulative regression vs seed" in verdict.reason
+
+
+def test_a_hygiene_rejection_names_the_finding_that_actually_blocked():
+    """Warnings never block, so reporting findings[0] points at the wrong file.
+
+    Observed live on 2026-08-26: a candidate blocked by a task-id leak in
+    `memory/cheatsheet.md` was logged as "names ground-truth directory component
+    'inputs'" in `PRIMER.md` -- a benign warning from whichever rule happened to
+    run first. The decision log is the audit trail; pointing it at the wrong
+    cause is worse than saying nothing.
+    """
+    from harness_evolve.types import Finding
+
+    @dataclass
+    class Report:
+        findings: list = field(default_factory=list)
+
+        @property
+        def errors(self):
+            return [f for f in self.findings if f.severity == "error"]
+
+        @property
+        def blocked(self):
+            return bool(self.errors)
+
+    report = Report(findings=[
+        Finding("path_component", "warn", "names 'inputs'", location="PRIMER.md:6"),
+        Finding("task_id", "error", "names evaluation task id 'kgdToughnessDominated'",
+                location="memory/cheatsheet.md:31"),
+        Finding("rare_token_overlap", "error", "23 rare ground-truth identifiers",
+                location="memory/cheatsheet.md"),
+    ])
+
+    search = Search(
+        FakeRunner(),
+        RandomEditProposer(lines=("- a new line",)),
+        hygiene=lambda c: report,
+        config=SearchConfig(budget_candidates=1, seeds=(1,), screen_tasks=1,
+                            probe_tasks=0),
+    )
+    result = search.run(make_seed(), list(KEYWORDS)[:2])
+    assert result.n_hygiene_blocked == 1
+    reason = [e for e in search.archive.entries if not e.accepted][0].reason
+    assert "task_id" in reason
+    assert "rare_token_overlap" in reason
+    assert "path_component" not in reason
