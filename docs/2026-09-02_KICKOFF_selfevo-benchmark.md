@@ -174,18 +174,92 @@ zero-interaction rule you decide them yourself, write the reasoning to the workl
   that crash.** Four were found in one night — each by running the thing and reading what
   it produced, never by reading code. Prefer measuring to asserting.
 
-## 7. Working conventions
+## 7. The clock — this is tighter than "overnight"
 
-- Append to a worklog as you go: `worklogs/2026-09-02_overnight.md`, following the
-  convention of the 2026-08-26 one — time-ordered entries, corrections marked in place
-  rather than silently edited, absolute paths, and a reader who is picking it up cold.
+**Hard deliverable deadline: 09:00 PT / 16:00 UTC on 2026-09-02.** Established
+2026-09-02 03:38 PT, which left **5.4 hours**. Convert to your own clock at every wakeup;
+do not assume a full night.
+
+| time (PT) | time (UTC) | gate |
+|---|---|---|
+| **08:00** | **15:00** | **Stop launching new rollouts.** Anything not started by now will not finish. Let in-flight work drain. |
+| **08:30** | **15:30** | Final `report_geos.py` recompute over whatever is in the corpus. Costs nothing. |
+| **09:00** | **16:00** | **`REPORT.md` final and committed.** |
+
+At ~12.6 min/rollout and 8-way parallel that is **~150–180 rollouts of real capacity**, not
+the ~490 the budget alone would buy. **Money stopped being the binding constraint the
+moment the cap was raised; wall-clock is.** Re-plan §4 against wall-clock:
+
+- §4 items 1–4 (unblock, baseline, search, **compute-matched baselines**) are the
+  commitment. An unmatched win is not a win — never ship item 3 without item 4.
+- §4 item 5 (ablations) is **in budget but probably not in time.** If the clock says one
+  ablation arm fits, run the single arm the evidence most calls for and say why you chose
+  it. Do not start four and finish none.
+- **Prefer one coherent, complete result over four half-finished arms.** A partial arm is
+  not a weaker result, it is an uninterpretable one.
+
+## 8. Reporting — the worklog is written as you go, not at the end
+
+Two artifacts, both required. The worklog is a *running* record; the report is a *standing*
+document. Do not defer either.
+
+### 8.1 The worklog — `/home/matt/projects/sci-sim-op/worklogs/2026-09-02_overnight.md`
+
+Append **as you go**, following the convention of `worklogs/2026-08-26_overnight.md` — that
+file is the model, read its shape before starting. Rules:
+
+- **Time-ordered entries**, each stamped, appended. Never rewrite history: when a later
+  measurement contradicts an earlier entry, **correct it in place with a marked note**
+  (`**CORRECTION:** …`) rather than silently editing. §§21–22 of the 2026-08-26 log are
+  the reference for how to do this well — the author overturned two of their own claims
+  and the log is more useful for it, not less.
+- **Write the plan before the work**, not after. An entry that only appears once something
+  succeeded hides the branches you abandoned, and those are usually the informative part.
+- **Every decision gets a `level=decision` entry** with the reasoning and the evidence that
+  settled it — especially the two §5 blockers, where the metric must be recorded *both ways*.
+- **Absolute paths, always.** Every artifact you produce — corpus files, rollout
+  workspaces, receipts, JSON results, logs, plots — is named by full absolute path in the
+  worklog at the point it is created. The reader is picking this up cold on a machine they
+  have not used. `.evolve/foo.json` is not an answer; `/home/matt/projects/sci-sim-op/.evolve/foo.json` is.
+- **Results go in as they land**, with n, and with the command that produced them, so any
+  number in the report can be traced back to a reproducible invocation.
+- **Cost readings** from each `/api/v1/key` poll, so the spend curve is reconstructable.
+
+### 8.2 The report — `/home/matt/projects/sci-sim-op/.evolve/geos_search/REPORT.md`
+
+**Create it early and keep it current.** Write a first version as soon as the baseline
+lands, and refresh it after every stage. The point is that there is a shippable report at
+every moment, so an unexpected stop costs you the *last* increment rather than the whole
+deliverable. Finalize by 09:00 PT.
+
+It must stand alone for a reader who has not seen the worklog, and it must contain:
+
+1. **What was run** — arms, tasks, seeds, n per cell, and the exact commands.
+2. **What it cost** — dollars, rollouts, wall-clock; the spend curve against the cap.
+3. **The numbers** — per-task and paired, never a bare mean. Report the tail (zero rate,
+   per-task minimum) as a first-class quantity, not an afterthought; that is the objective.
+4. **What is NOT believable, and why.** The most important section. Which cells are
+   underpowered, which comparisons are unmatched, which arms did not finish, what the
+   noise floor implies about the minimum detectable effect. `docs/2026-08-26_BUDGET_PLAN.md`
+   §3.1 measured σ from 0.0035 to 0.32 across tasks — a mean over that without a dispersion
+   statistic is not a result.
+5. **Absolute paths to every artifact** a reader would want to inspect.
+6. **The verdict, stated plainly**, including `mechanism_only` or a clean null if that is
+   what happened. Per `docs/PROJECT_PRIMER.md` §7 the null is pre-registered and
+   first-class. Do not soften it, and do not tune to avoid it.
+
+**This is going in front of a grant project sync.** Write for a reader who is technical but
+has not been in this codebase: lead with the finding, put the caveat next to the number it
+qualifies rather than in a footnote, and never present a number whose provenance you cannot
+name.
+
+## 9. Working conventions
+
 - Commit as you go on `master`. Attribution footer:
   ```
   Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
   Claude-Session: https://claude.ai/code/session_017xHgB9a13QYRXriSue2ppA
   ```
-- Leave a `REPORT.md` at `.evolve/geos_search/REPORT.md` that stands alone: what was run,
-  what it cost, what the numbers are, what is *not* believable and why.
 - **Escalate rather than abandon.** If the budget runs out, the container breaks, or the
   provider stops serving: write the full report, `PushNotification` the owner, and keep
   working on whatever does not depend on the blocked thing.
