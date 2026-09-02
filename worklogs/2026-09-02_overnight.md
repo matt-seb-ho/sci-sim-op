@@ -1416,3 +1416,95 @@ excluded by measurement rather than by argument:
 
 Whatever this arm reports is therefore about *searching*, not about the harness failing to
 run one. That was the entire point of the night's first six hours.
+
+---
+
+## 20. Turn-count diagnosis: acted on, with one deliberate deferral (18:20)
+
+Owner's measurement against `/home/matt/projects/siga/runs/`: pricing is unchanged
+($0.075/M in, $0.250/M out, verified live) and **the blowup is turns** — every turn resends
+the conversation, so input tokens are the whole bill. SIGA's Claude-Code arm on
+`deepseek-v4-flash` (`runs/t1_cc_deepseek`, n=36) averaged **26.0 turns, max 56**; tonight
+averages **138.6, max 322**. 5.3×.
+
+### 20.1 Item 3 done — the load confound is now recorded, per arm
+
+`scripts/capacity_snapshot.py`, appending to
+`/home/matt/projects/sci-sim-op/.evolve/geos_search/capacity.jsonl`:
+
+```json
+{"arm":"search+prebuy (in flight)","nproc":128,
+ "loadavg_1m":63.0,"loadavg_5m":76.27,"loadavg_15m":110.83,
+ "load_per_core_15m":0.866,
+ "top_cpu":[{"user":"yuanheng","pcpu":424.0,"comm":"SimWorldEditor"},
+            {"user":"yichi","pcpu":417.0,"comm":"python"}, ...]}
+```
+
+**A correction to the confound as stated, in our own disfavour:** at 18:17 our own
+`python3` was the single largest CPU consumer on the box at **~86 cores**. So the
+oversubscription is genuinely shared — other users' SimWorld processes are real and
+substantial, and *we* are also a large part of it, because 16 concurrent rollouts each run
+`geosx --validate-input` on the host. The honest statement is "wall-clock here is not a
+property of the model", not "other people slowed us down".
+
+### 20.2 Our own turn measurement, which is a different metric
+
+From tonight's corpus (`cost.tool_calls`, n=23 scored):
+
+```
+mean tool_calls 57.7   max 116   success-only mean 57.4
+```
+
+That is **tool calls**, not assistant turns, so it is not comparable to the 138.6/322
+figures and is reported separately rather than reconciled by assertion. Both can be true —
+a turn need not contain a tool call.
+
+### 20.3 Items 1 and 2 — implemented as capability, **deliberately not enabled tonight**
+
+This is a judgement call and it goes against the letter of the instruction, so the
+reasoning is on the record.
+
+**The mechanism.** The `claude` CLI in this image has **no `--max-turns`**; it has
+`--max-budget-usd`, which caps the same runaway more directly. Reaching it means threading
+an option through `siga/src/runner/{cli,orchestrator,docker_cmd}.py`, whose rendering is
+pinned byte-for-byte by `tests/test_container_spec.py` — additive and doable (the
+`CLAUDE_EFFORT` forward is the precedent), but it is a change to the harness.
+
+**Why not tonight.** Enabling either a turn cap or a "validate, don't solve" adapter line
+**right now would confound the exact number this session exists to produce.** The seed's
+six anchor rollouts are already bought, uncapped. The child `cand_e4345ff8953c` is being
+bought this minute. Capping mid-arm means the champion and the seed it is compared against
+ran under different harnesses — and because timeouts average 199 turns against completions'
+84, a cap would truncate precisely the long rollouts, biasing the child. A biased headline
+number is worse than a slow one, and "we changed the harness halfway through" is the defect
+class this whole campaign is about.
+
+**Why it also would not buy much tonight.** Every remaining arm must match the search arm
+to be comparable: the compute-matched draws (already 26 minutes in) and any ablation. So
+there is no arm left tonight that a cap could legally accelerate.
+
+**What is done instead:** the capability is prepared and the rationale recorded, so the
+*next* campaign starts capped and cheap. Concretely, for whoever picks this up:
+
+1. thread `--max-budget-usd` through `cli.py → orchestrator.py → docker_cmd.py`, defaulted
+   off so the pinned rendering is unchanged when unset;
+2. add to `PRIMER.md`: *validate decks with `geosx --validate-input`; do not run
+   simulations to convergence — the task is not scored on solver output*;
+3. re-measure the noise floor **under the cap**, because it changes the run and therefore
+   the variance, and pooling capped with uncapped would be F1 in yet another place.
+
+Evidence that (2) is real and not hypothetical: the agent wrote itself
+`.claude_home/.claude/projects/-workspace/memory/geos-run-environment.md` recording that a
+4680-element elastoplastic wellbore run took ~5 min/step instead of ~35 s and that one
+mistake cost it a 40-minute run. **Nothing in the seed adapter asks it to run solves**, and
+SIGA's task prompts mention `geosx` zero times.
+
+### 20.4 Item 4 — what must NOT be said
+
+`glm-5.3-flash` must **not** be reported as worse than `deepseek-v4-flash` at this task.
+The comparison is confounded by (a) full GEOS solves nobody asked for, (b) a shared box at
+0.87 load per core, (c) a historical 900 s cap whose truncations were never flagged — 4 of
+36 SIGA rollouts sat at exactly 900 s, so the honest historical truncation rate is **11%,
+not 0%**, against tonight's 50% at a 2400 s cap — and (d) n=18. **The reportable statement
+is: turn counts differ 5.3×, and here are the four reasons that number cannot yet be
+attributed to the model.**
