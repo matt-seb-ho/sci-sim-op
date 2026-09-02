@@ -806,3 +806,46 @@ Written now so they cannot be adjusted afterwards. (`docs/PROJECT_PRIMER.md` §7
 
 A confirmed P1+P2 is the pre-registered null, and it is a first-class result, not a
 failure to find one.
+
+---
+
+## 12. D2 proven at the container boundary (10:50)
+
+§5.2 proved the vendored checks fire through the hook *on the host*. The boundary is the
+part that has burned this project before — R1 was precisely a policy that reached the host
+and died at the container edge — so it is measured rather than assumed:
+
+```bash
+$ A=/home/matt/projects/sci-sim-op/.evolve/geos_search/rollouts/adapters/\
+evolve-cand_d1c0f1f0f516-s1-TutorialSneddon
+$ enroot start --mount "$A:/plugins/repo3" geos-eval python3 -c "
+    import sys; sys.path.insert(0,'/plugins/repo3/vendor')
+    from harness_evolve.checks import BUILTIN_CHECKS, run_checks
+    from harness_evolve.simulators.base import SimulatorRegistry
+    ..."
+
+IN-CONTAINER import OK, python 3.12.3
+checks: ['constraints', 'cross_section_refs', 'geosx_validate', 'parse', 'required_sections']
+geos spec: ('Constitutive', 'ElementRegions', 'Events', 'Mesh')
+```
+
+That is the **real image**, the **real mount point** (`/plugins/repo3`), and an adapter
+materialized by **this run's** runner — not a reconstruction. All five checks resolve and
+the GEOS spec loads.
+
+The live adapter also carries the policy that turns them on:
+
+```
+$ cat $A/stop_policy.env
+GEOS_EVOLVE_CHECKS=parse,geosx_validate,required_sections,constraints,cross_section_refs
+GEOS_EVOLVE_FEEDBACK_SHAPE=structured_errors
+GEOS_HOOK_MAX_RETRIES=2
+GEOS_HOOK_XMLLINT=1
+$ ls $A/vendor/harness_evolve
+checks  __init__.py  simulators  types.py
+```
+
+So the chain is complete and each link is measured: policy → forwarded env (R1 receipt) →
+hook reads it → hook imports the vendored registry from the mount → checks run → findings
+block. What remains unmeasured is only the *firing rate on real decks*, which is what the
+campaign rollouts are for, and which P3 predicts will be near zero.
