@@ -53,6 +53,11 @@ def main() -> int:
                     help="report only rollouts produced by this inference model. "
                          "The corpus may hold several; pooling them is a "
                          "different experiment, not a bigger n.")
+    ap.add_argument("--also-model", action="append", default=[],
+                    help="treat another slug as the same model. `stealth/ox-alpha` "
+                         "was ZAI's GLM-5.3 Flash per the vendor's retirement "
+                         "notice, so its rollouts are glm-5.3-flash rollouts "
+                         "recorded under a pre-release slug.")
     ap.add_argument("--baseline-cid", default=None,
                     help="candidate to pair against (default: the first one to "
                          "appear in the corpus, which is the seed).")
@@ -69,8 +74,15 @@ def main() -> int:
     # glm-5.3-flash.
     models = sorted({(r.get("model") or "unrecorded") for r in records})
     if args.model:
+        accept = {args.model, *args.also_model}
         records = [r for r in records
-                   if (r.get("model") or "unrecorded") == args.model]
+                   if (r.get("model") or "unrecorded") in accept]
+        if args.also_model:
+            # Relabel so grouping and pairing see one condition, while the row
+            # itself keeps the slug it was recorded under.
+            for r in records:
+                r["recorded_slug"] = r.get("model")
+                r["model"] = args.model
         if not records:
             print(f"no rollouts for model {args.model!r}; corpus holds {models}")
             return 1
