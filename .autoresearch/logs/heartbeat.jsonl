@@ -1,1 +1,2 @@
 {"ts": "2026-09-02T17:48:57.501796Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "priority reset received; wakeup registered 18:09Z; search2 in flight"}
+{"ts": "2026-09-02T17:51:01.766962Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "merged pool n=35 MDE 0.0578; search2 running 10min in proposer call"}

@@ -335,6 +335,18 @@ def cmd_baseline(args: argparse.Namespace) -> int:
         print(f"\nmean {statistics.mean(values):.4f}  "
               f"zero rate {zeros/len(values):.3f}  n={len(values)}")
 
+    if args.no_slices:
+        # Buy rollouts without re-cutting the experiment. Used to pre-purchase
+        # the best-of-k draws for the compute-matched arm *while the search is
+        # blocked in a proposer call*, so the mandatory baseline does not have
+        # to wait for the search to finish before it starts spending
+        # wall-clock. The draws are keyed by (candidate, task, seed, model), so
+        # `--stage baselines` replays whatever it needs of them for $0.00.
+        print(f"\n--no-slices: {len(rollouts)} rollout(s) banked; slices.json untouched")
+        print(runner.inner.summary())
+        print(guard.render())
+        return 0
+
     stats = stats_from_rollouts(scored)
     plan = build_slices(tasks, stats=stats,
                         anchor_size=args.anchor, probe_size=args.probe)
@@ -555,6 +567,8 @@ def main() -> int:
                          "requests and one rollout uses about one slot")
     ap.add_argument("--search-rollouts", type=int, default=None)
     ap.add_argument("--sequential", action="store_true")
+    ap.add_argument("--no-slices", action="store_true",
+                    help="bank rollouts without rewriting slices.json")
     ap.add_argument("--ablate", default="",
                     help=f"comma-separated ingredients to disable: {ABLATABLE}")
     ap.add_argument("--hygiene-profile", choices=("train", "strict"), default="train",

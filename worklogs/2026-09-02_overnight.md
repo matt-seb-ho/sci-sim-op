@@ -1333,3 +1333,55 @@ documented when `buckleyLeverettProblem` moved σ 0.0035 → 0.5170 with nothing
 The merged n≈6 figures above supersede both. This is the fourth claim withdrawn today
 (§13 P3, §16.1 model×task, §10 the unapplied fix, and now this), and all four came from
 asserting something a measurement could have settled.
+
+---
+
+## 18. PLAN for the final window, written before running it (17:52)
+
+Priority reset received. Deadline **21:00 UTC** (14:00 PT); stop launching **20:00 UTC**;
+freeze the report **20:30 UTC**. Spend is not the constraint — **$14.83 of ceiling unspent**
+— wall-clock is.
+
+**The deliverable is a number on the new methods, not another baseline.** Order, not to be
+reordered:
+
+1. search producing an **accepted, evaluated** candidate;
+2. **paired champion-vs-seed** on the fixed anchor slice, per task, never a bare mean;
+3. **compute-matched baseline** at the k the ledger says the search actually spent —
+   mandatory; if only two of the three fit, it is 2 **and** 3, never 2 alone;
+4. one ablation, only if time, with the reason for choosing it.
+
+### 18.1 Two arms running concurrently, on purpose
+
+The search is **sequential in candidates** and spends much of its wall-clock inside a
+proposer call with the rollout pool idle. At 17:51 it had been in one for ten minutes with
+zero containers running. That idle capacity is the scarcest thing in the room, so it is now
+being used:
+
+```bash
+# banking the best-of-k draws while the search thinks
+uv run python scripts/search_geos.py --stage baseline --no-slices \
+  --parallel 8 --timeout 2400 --seeds 1000,1001,2000,2001 \
+  --task-list ExampleMandel,ExampleIsothermalLeakyWell,AdvancedExampleDruckerPrager \
+  --out /home/matt/projects/sci-sim-op/.evolve/geos_search
+```
+
+**Why this is not guessing at the answer.** `BestOfK` draws its k rollouts at seeds
+`replicate*1000 + j` (`evaluation/baselines._draw_seed`). Those are ordinary corpus rows
+keyed by `(candidate, task, seed, model)`. Banking seeds 1000/1001/2000/2001 buys the
+draws for **k=2 over replicates 1,2** in advance; when `--stage baselines` later computes
+k *from the ledger*, it replays whatever subset it needs for **$0.00** and buys only a
+top-up if k turns out larger. **k is still derived from what the search actually spent** —
+nothing about the matching is pre-decided, only the raw draws are pre-purchased.
+
+`--no-slices` was added for this: banking rollouts must not re-cut the experiment.
+`slices.json` is backed up to
+`/home/matt/projects/sci-sim-op/.evolve/geos_search/slices.json.keep` regardless.
+
+Console logs: `/tmp/claude-1009/search2.log`, `/tmp/claude-1009/prebuy.log`.
+
+### 18.2 Standing risk this creates, recorded now
+
+Sixteen concurrent rollouts against one provider slug is above anything measured. If the
+throttle rate rises, the pre-buy is the arm to kill — the search is the critical path and
+the matched baseline can be bought after it. Watching `harness_error` rate as the signal.
