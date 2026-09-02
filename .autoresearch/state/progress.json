@@ -1,9 +1,11 @@
 {
-  "iteration": 0,
-  "total_findings": 0,
+  "iteration": 1,
+  "total_findings": 6,
   "status": "running",
   "stale_count": 0,
-  "last_seen": "2026-09-02T10:13:43.896802Z",
-  "milestone": "M0",
-  "spend_usd_account": null
+  "last_seen": "2026-09-02T10:43:45.534775Z",
+  "milestone": "M2 baseline running",
+  "deadline_utc": "2026-09-02T16:00:00Z",
+  "launch_cutoff_utc": "2026-09-02T15:00:00Z",
+  "spend_usd_account": 1.283724018
 }

@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from harness_evolve.runners.base import RolloutRunner, RunnerCapabilities
 from harness_evolve.types import Cost, Rollout, Score, TaskId
+from harness_evolve.vendoring import vendor_checks
 
 if TYPE_CHECKING:  # pragma: no cover
     from harness_evolve.core.candidate import Candidate
@@ -312,6 +313,13 @@ class SubprocessRunner(RolloutRunner):
         candidate.materialize(
             dest, scaffolding_from=Path(self.config.scaffolding_dir), overwrite=True
         )
+        # Ship the check registry with the adapter. The hook runs inside the
+        # container, where `harness_evolve` is not installed and cannot be, so
+        # `required_sections`, `constraints` and `cross_section_refs` could not
+        # run there at all -- they were recorded as `checks_unsupported` and
+        # skipped (2026-08-26 worklog Â§2.6). The adapter directory is the one
+        # thing mounted into every rollout, so it is the delivery mechanism.
+        vendor_checks(dest)
         # Belt and braces on the stop policy: also inside the mounted adapter.
         policy = candidate.manifest.stop_policy.to_env()
         (dest / STOP_POLICY_ENV_FILE).write_text(

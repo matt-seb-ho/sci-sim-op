@@ -84,14 +84,14 @@ def test_the_ceiling_is_the_key_cap_not_the_authorization_when_the_cap_is_lower(
     # the reserve. The $20 authorization is not reachable through this key.
     g = guard([usage(BASELINE_USAGE)])
     g.poll()
-    assert g.ceiling() == pytest.approx(10.0 - BASELINE_USAGE - 0.25)
+    assert g.ceiling() == pytest.approx(10.0 - BASELINE_USAGE)
     assert g.ceiling() < AUTHORIZED_USD
 
 
 def test_raising_the_key_cap_mid_run_raises_the_ceiling_to_the_authorization():
     g = guard([usage(BASELINE_USAGE), usage(5.0, limit=100.0)])
     g.poll()
-    assert g.ceiling() == pytest.approx(8.478929, abs=1e-5)
+    assert g.ceiling() == pytest.approx(8.728929, abs=1e-5)
     g.poll()
     assert g.ceiling() == AUTHORIZED_USD
     assert not g.tripped
@@ -125,7 +125,7 @@ def test_the_ceiling_does_not_shrink_as_we_spend():
 
 
 def test_it_trips_when_additional_spend_reaches_the_ceiling():
-    g = guard([usage(BASELINE_USAGE), usage(9.75)])
+    g = guard([usage(BASELINE_USAGE), usage(10.0)])
     g.check(force=True)
     with pytest.raises(BudgetExhausted, match="reached the ceiling"):
         g.check(force=True)
@@ -139,7 +139,7 @@ def test_it_trips_when_one_more_batch_would_not_fit():
 
 
 def test_a_trip_is_permanent_and_does_not_need_another_poll():
-    g = guard([usage(9.9)])
+    g = guard([usage(10.0)])
     with pytest.raises(BudgetExhausted):
         g.check(force=True)
     with pytest.raises(BudgetExhausted):
@@ -147,7 +147,7 @@ def test_a_trip_is_permanent_and_does_not_need_another_poll():
 
 
 def test_it_never_says_switch_model_is_an_option():
-    g = guard([usage(9.9)])
+    g = guard([usage(10.0)])
     with pytest.raises(BudgetExhausted) as exc:
         g.check(force=True)
     assert "Do NOT switch to a different model" in str(exc.value)
@@ -175,7 +175,7 @@ def test_every_reading_is_logged_with_what_it_was_judged_against(tmp_path: Path)
     assert rows[1]["kind"] == "account_usage"
     assert rows[1]["usage"] == 3.0
     assert rows[1]["spent_this_campaign"] == pytest.approx(3.0 - BASELINE_USAGE)
-    assert rows[1]["ceiling_usd"] == pytest.approx(8.478929, abs=1e-5)
+    assert rows[1]["ceiling_usd"] == pytest.approx(8.728929, abs=1e-5)
 
 
 # -- the runner wrapper -----------------------------------------------------
@@ -183,7 +183,7 @@ def test_every_reading_is_logged_with_what_it_was_judged_against(tmp_path: Path)
 
 def test_the_guard_stops_rollouts_from_starting():
     inner = CountingRunner()
-    g = guard([usage(BASELINE_USAGE), usage(9.9)])
+    g = guard([usage(BASELINE_USAGE), usage(10.0)])
     runner = BudgetGuardedRunner(inner, g)
     c = make_candidate()
 
@@ -206,7 +206,7 @@ def test_a_replayed_rollout_is_not_gated(tmp_path: Path):
         BudgetGuardedRunner(inner, g), corpus, model="m"
     ).run(c, "t0", 1)
 
-    g2 = guard([usage(9.99)])
+    g2 = guard([usage(10.0)])
     replayed = RecordingRunner(
         BudgetGuardedRunner(CountingRunner(), g2), corpus, model="m"
     )

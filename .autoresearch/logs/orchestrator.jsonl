@@ -1,1 +1,2 @@
 {"ts": "2026-09-02T10:13:43.934227Z", "source": "orchestrator", "level": "info", "event": "session_start", "detail": "read 6 docs; state scaffolded; beginning M0 preflight"}
+{"ts": "2026-09-02T10:43:45.564083Z", "source": "orchestrator", "level": "info", "event": "baseline_launched", "detail": "18 rollouts, 6 tasks x 3 seeds, 8-way, timeout 2400s; deadline 16:00Z"}

@@ -78,10 +78,13 @@ BASELINE_USAGE = 1.271071093
 #: this and what the key's own cap allows.
 AUTHORIZED_USD = 20.00
 
-#: Never spend the key's last few cents. The key cap is a hard provider-side
-#: wall: crossing it does not warn, it starts refusing calls mid-rollout, which
-#: converts paid-for work into `harness_error`s. Held back from the ceiling.
-KEY_RESERVE_USD = 0.25
+#: Zero on purpose. The key cap *is* the stop -- it is a hard provider-side wall
+#: and the owner's instruction (2026-09-02 10:36) is to poll it rather than to
+#: carry a second number of our own alongside it. Headroom against being refused
+#: mid-batch comes from `batch_cost_usd` instead, which is derived (parallelism x
+#: measured $/rollout) rather than hardcoded, and which the brief asks for
+#: directly: "halt when limit_remaining falls below the cost of one more batch".
+KEY_RESERVE_USD = 0.0
 
 
 class BudgetExhausted(RuntimeError):
