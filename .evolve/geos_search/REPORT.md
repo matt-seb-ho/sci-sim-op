@@ -1,7 +1,7 @@
 # GEOS self-evolution — initial numbers
 
 **Run:** 2026-09-02, unattended · **Model:** `z-ai/glm-5.3-flash` ·
-**Deliverable deadline:** 2026-09-02 16:00 UTC — **missed; this is the 17:40 UTC state.**
+**Deliverable deadline:** 2026-09-02 21:00 UTC (14:00 PT) · **live draft, refreshed each stage**
 
 Worklog (every number traces to a timestamped entry there):
 `/home/matt/projects/sci-sim-op/worklogs/2026-09-02_overnight.md`
@@ -10,25 +10,36 @@ Worklog (every number traces to a timestamped entry there):
 
 ## 1. The finding
 
-**The search arm produced no evaluated candidate, so there is no evidence here either for
-or against self-evolution helping on GEOS.** That is the honest headline and it is not the
-pre-registered null — a null requires a search that could have accepted something and did
-not. This one never got a candidate as far as an evaluator.
+**The search evaluated real candidates, and the paired champion-vs-seed comparison shows no
+difference this design can resolve.**
 
-What the night *did* produce is a working, audited measurement apparatus and one real
-result:
+> **Paired champion vs seed: +0.1159, 95% CI [−0.0825, +0.3143], n=5 cells. The CI spans
+> zero.** The point estimate exceeds the arm-vs-arm MDE of 0.0578, but **89% of it comes
+> from a single cell** — `ExampleMandel` seed 1, +0.5176. Remove that one cell and the
+> remaining four give **+0.0155**. Two cells are *exactly* 0.0000.
 
-> **Five defects were found, each of which would have produced a plausible, publishable
-> number that meant something other than its label.** Four of them were in the path
-> between a rollout and a reported score. All are fixed, tested, and committed.
+That single cell is the whole story, and it is genuinely interesting rather than merely
+noisy. The seed's own distribution on `ExampleMandel` is six draws deep and tight —
+`0.3414 0.3295 0.3296 0.3360 0.3302` plus one low outlier at `0.1622`, **maximum 0.3414**.
+The champion produced **0.8590**: 2.5× anything the seed has ever produced on that task.
+But its *other* draw, 0.3378, sits squarely inside the seed's cluster. So if there is an
+effect it is **bimodal — an occasional rescue, not a shift** — and at two champion draws
+the exact rank test gives p = 0.125. **Four more champion draws on that task were launched
+at 18:59 specifically to settle it**; §4.4 carries the outcome.
 
-and, at no additional cost:
+Alongside that, and at no additional cost:
 
 > **A near-paired contrast over 35 rollouts shows the harness change had no detectable
 > effect on score: paired mean delta −0.0350, 95% CI [−0.1473, +0.0772], spanning zero;
 > zero rate 0.056 → 0.059.** Meanwhile the newly-enabled `cross_section_refs` check
 > demonstrably *fired*, blocked a turn, and got a defect repaired. **Mechanism without
 > measurable outcome.**
+
+And the substance of the run, which is not a side note:
+
+> **Eight defects were found, each of which would have produced a plausible, publishable
+> number that meant something other than its label.** Six sit in the path between a rollout
+> and a reported score. All are fixed or explicitly recorded; the fixes carry tests.
 
 ---
 
