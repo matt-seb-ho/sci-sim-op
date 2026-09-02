@@ -37,6 +37,24 @@ corpus: 0 row(s) match model 'z-ai/glm-5.3-flash' and are replayable; 51 row(s) 
         property of (candidate, task, seed, model), not of the first three
 ```
 
+A third, smaller one is worth recording because of *how* it was found: the F2 fix was
+committed once without having actually applied — the edit's anchor text did not match the
+file, and I verified the import rather than the call site. It was caught by reading the
+file for an unrelated reason. **Every defect that mattered tonight was found by running
+something; the one I got wrong was the one I checked by reading.**
+
+### 1.1 Two blockers cleared, both with the metric recorded either way
+
+| blocker | settled as | evidence |
+|---|---|---|
+| Hygiene gate blocks the seed on **public GEOS API names** (`ExtendedDruckerPrager`: 24 occurrences in `schema.xsd`, which the agent already reads from its own mounted tools) | Subtract a public-vocabulary allowlist, **and** delete the one genuine leak (`kgdToughnessDominated`, an evaluation task id) from the seed cheatsheet | The seed now passes the **strictest** configuration, not merely the demoted one. The quarantined `v4` lookup-table adapter still blocks in **all four** configurations (30 errors at the most permissive), so the exemption does not hide a real leak. `--no-public-vocab` reproduces the false positive on demand. |
+| `checks/` not vendored into the plugin mount, so three of five checks could not run in the container | Vendored a **subtree** (not the package — a check must not be able to reach the ground-truth corpus or the network from inside a rollout) | Proved firing, not registering: a parseable deck missing `<ElementRegions>` blocks through the real hook with `checks_unsupported: []`. Proved at the boundary: the registry imports **inside the real container** from the real mount point. |
+
+**Correction to `docs/PROJECT_PRIMER.md` §8 and to the brief:** both state that acceptance
+is currently 0% by construction. **Measured: it is not**, and has not been since the
+`train` hygiene profile landed — which the driver already defaults to. Nothing had to be
+weakened to unblock the search.
+
 ---
 
 ## 2. What was run
