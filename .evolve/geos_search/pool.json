@@ -1,0 +1,62 @@
+{
+  "model": "z-ai/glm-5.3-flash",
+  "n_seeds": 3,
+  "kept": [
+    "ExampleMandel",
+    "ExampleIsothermalLeakyWell",
+    "AdvancedExampleDruckerPrager",
+    "TutorialSneddon"
+  ],
+  "dropped": [
+    "ExampleDPWellbore",
+    "buckleyLeverettProblem"
+  ],
+  "per_task": {
+    "ExampleMandel": {
+      "mean": 0.33545,
+      "sigma": 0.008414570696119892,
+      "zero_rate": 0.0,
+      "min": 0.3295,
+      "n": 2
+    },
+    "ExampleIsothermalLeakyWell": {
+      "mean": 0.9477333333333333,
+      "sigma": 0.052373116513468376,
+      "zero_rate": 0.0,
+      "min": 0.8873,
+      "n": 3
+    },
+    "AdvancedExampleDruckerPrager": {
+      "mean": 0.9157333333333333,
+      "sigma": 0.07857737163670807,
+      "zero_rate": 0.0,
+      "min": 0.825,
+      "n": 3
+    },
+    "TutorialSneddon": {
+      "mean": 0.17983333333333335,
+      "sigma": 0.16494636502006746,
+      "zero_rate": 0.0,
+      "min": 0.0772,
+      "n": 3
+    },
+    "ExampleDPWellbore": {
+      "mean": 0.5017333333333334,
+      "sigma": 0.36032931234265875,
+      "zero_rate": 0.0,
+      "min": 0.2918,
+      "n": 3
+    },
+    "buckleyLeverettProblem": {
+      "mean": 0.5854666666666667,
+      "sigma": 0.516951693423412,
+      "zero_rate": 0.3333333333333333,
+      "min": 0.0,
+      "n": 3
+    }
+  },
+  "mde_kept_one_arm": 0.05382232729236693,
+  "mde_kept_two_arm": 0.0761162652153489,
+  "mde_all_one_arm": 0.12414360881934826,
+  "mde_all_two_arm": 0.1755655752742625
+}

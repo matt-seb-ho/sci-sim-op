@@ -1,0 +1,64 @@
+{
+  "elapsed_s": 909.9,
+  "ablated": [],
+  "hygiene_scope": "all",
+  "hygiene_profile": "train",
+  "ablation_notes": [],
+  "summary": "proposed 2, screened out 0, hygiene-blocked 0, proposer failures 2, probe rollouts 1\narchive: 1 candidates, 1 accepted, 1 on the frontier\nbest: cand_d1c0f1f0f516 mean=0.7454 gen=0\n  frontier cand_d1c0f1f0f516 mean=0.7454 gen=0\ndecisions: 0, accepted 0%, cycling 0%\nproposer calibration: mean hit rate n/a over 0 predictions\ntotal rollout cost: {'tool_calls': 320.0, 'wall_seconds': 4897.876, 'input_tokens': 855180.0, 'output_tokens': 162669.0, 'usd': 0.28521632}\nvalidator constraints: 0 directive(s) over 1 round(s), 0% naming an action space, 0 constraint(s) at support >= 2\ncand_d1c0f1f0f516: 1 harness error(s) excluded from selection (ExampleMandel/seed2)\nproposal 1 failed: no <prediction> block; every edit must be falsifiable\nproposal 2 failed: every free route failed or is disabled; tried 1: openrouter/z-ai/glm-5.3-flash: openrouter/z-ai/glm-5.3-flash returned no content (finish_reason=length, 35617 chars of reasoning): the token budget was spent thinking. Raise max_tokens -- this model needs room to reason *and* answer.",
+  "n_proposed": 2,
+  "n_screened_out": 0,
+  "n_hygiene_blocked": 0,
+  "n_proposer_failures": 2,
+  "stagnated": false,
+  "best": "cand_d1c0f1f0f516",
+  "best_mean": 0.7453666666666666,
+  "archive": [
+    {
+      "cid": "cand_d1c0f1f0f516",
+      "mean": 0.7453666666666666,
+      "accepted": true,
+      "reason": "seed",
+      "scores": {
+        "ExampleMandel": 0.3414,
+        "ExampleIsothermalLeakyWell": 0.9336,
+        "AdvancedExampleDruckerPrager": 0.9611
+      }
+    }
+  ],
+  "search_rollouts": 7,
+  "search_cost": {
+    "tool_calls": 320.0,
+    "wall_seconds": 4897.876,
+    "usd": 0.28521632
+  },
+  "proposer_stats": {
+    "routes": [
+      {
+        "route": "openrouter/z-ai/glm-5.3-flash",
+        "model": "z-ai/glm-5.3-flash",
+        "limit": 8,
+        "successes": 1,
+        "throttles": 0,
+        "failures": 1,
+        "disabled": null
+      }
+    ],
+    "calls": 2,
+    "total_cost": 0.0086489,
+    "unknown_cost_calls": 0
+  },
+  "budget": {
+    "baseline_usd": 1.271071093,
+    "authorized_usd": 20.0,
+    "readings": 0,
+    "tripped": false,
+    "trip_reason": "",
+    "usage": null,
+    "key_limit": null,
+    "limit_remaining": null,
+    "spent_this_campaign": null,
+    "ceiling_usd": null,
+    "headroom_usd": null
+  },
+  "model": "z-ai/glm-5.3-flash"
+}

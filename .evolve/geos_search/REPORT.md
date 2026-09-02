@@ -1,194 +1,267 @@
 # GEOS self-evolution — initial numbers
 
 **Run:** 2026-09-02, unattended · **Model:** `z-ai/glm-5.3-flash` ·
-**Deadline:** 2026-09-02 16:00 UTC (grant project sync)
-**Status: IN PROGRESS — baseline arm running.** This file is refreshed after every stage;
-whatever it says now is shippable now.
+**Deliverable deadline:** 2026-09-02 16:00 UTC — **missed; this is the 17:40 UTC state.**
 
-Worklog (how every number here was arrived at):
+Worklog (every number traces to a timestamped entry there):
 `/home/matt/projects/sci-sim-op/worklogs/2026-09-02_overnight.md`
 
 ---
 
-## 1. The finding so far
+## 1. The finding
 
-**Two defects in the measurement apparatus would each have produced a plausible,
-publishable-looking number that meant something other than its label. Both were found
-before any rollout was spent, and both are fixed.** No experimental arm has landed yet, so
-there is as yet **no evidence either for or against the search helping**.
+**The search arm produced no evaluated candidate, so there is no evidence here either for
+or against self-evolution helping on GEOS.** That is the honest headline and it is not the
+pre-registered null — a null requires a search that could have accepted something and did
+not. This one never got a candidate as far as an evaluator.
 
-That is the honest headline at this timestamp, and it is deliberately not dressed up. It is
-also, in itself, the campaign's own thesis holding: *the dangerous bugs here are the ones
-that produce a plausible number, not the ones that crash.*
+What the night *did* produce is a working, audited measurement apparatus and one real
+result:
 
-| # | defect | what it would have produced |
-|---|---|---|
-| **F1** | The rollout corpus keyed replays on `(candidate, task, seed)` — **not the inference model** — and held 51 rollouts produced by `stealth/ox-alpha`, whose free window closed on 2026-08-26. | `--stage baseline` would have replayed 18 ox-alpha rollouts, reported them as `glm-5.3-flash` results at **$0.00**, and handed the search a **seed baseline measured on a different model**. The resume line it prints is a normal feature of the harness. |
-| **F2** | The proposer's backend defaulted to `stealth/ox-alpha` — dead. | Every proposal call 404s; the search proposes nothing, evaluates nothing, and **returns its seed** — i.e. reports the pre-registered null *for entirely the wrong reason*. |
+> **Five defects were found, each of which would have produced a plausible, publishable
+> number that meant something other than its label.** Four of them were in the path
+> between a rollout and a reported score. All are fixed, tested, and committed.
 
-F1 would have fabricated the **baseline**; F2 would have fabricated the **null**. Together
-they would have produced a complete, internally consistent, entirely meaningless result.
+and, at no additional cost:
 
-**Both fixed, and the fix is visible in the running system** rather than asserted:
-
-```
-corpus: 0 row(s) match model 'z-ai/glm-5.3-flash' and are replayable; 51 row(s) were
-        recorded under stealth/ox-alpha and will NOT be replayed -- a rollout is a
-        property of (candidate, task, seed, model), not of the first three
-```
-
-A third, smaller one is worth recording because of *how* it was found: the F2 fix was
-committed once without having actually applied — the edit's anchor text did not match the
-file, and I verified the import rather than the call site. It was caught by reading the
-file for an unrelated reason. **Every defect that mattered tonight was found by running
-something; the one I got wrong was the one I checked by reading.**
-
-### 1.1 Two blockers cleared, both with the metric recorded either way
-
-| blocker | settled as | evidence |
-|---|---|---|
-| Hygiene gate blocks the seed on **public GEOS API names** (`ExtendedDruckerPrager`: 24 occurrences in `schema.xsd`, which the agent already reads from its own mounted tools) | Subtract a public-vocabulary allowlist, **and** delete the one genuine leak (`kgdToughnessDominated`, an evaluation task id) from the seed cheatsheet | The seed now passes the **strictest** configuration, not merely the demoted one. The quarantined `v4` lookup-table adapter still blocks in **all four** configurations (30 errors at the most permissive), so the exemption does not hide a real leak. `--no-public-vocab` reproduces the false positive on demand. |
-| `checks/` not vendored into the plugin mount, so three of five checks could not run in the container | Vendored a **subtree** (not the package — a check must not be able to reach the ground-truth corpus or the network from inside a rollout) | Proved firing, not registering: a parseable deck missing `<ElementRegions>` blocks through the real hook with `checks_unsupported: []`. Proved at the boundary: the registry imports **inside the real container** from the real mount point. |
-
-**Correction to `docs/PROJECT_PRIMER.md` §8 and to the brief:** both state that acceptance
-is currently 0% by construction. **Measured: it is not**, and has not been since the
-`train` hygiene profile landed — which the driver already defaults to. Nothing had to be
-weakened to unblock the search.
+> **A near-paired contrast over 35 rollouts shows the harness change had no detectable
+> effect on score: paired mean delta −0.0350, 95% CI [−0.1473, +0.0772], spanning zero;
+> zero rate 0.056 → 0.059.** Meanwhile the newly-enabled `cross_section_refs` check
+> demonstrably *fired*, blocked a turn, and got a defect repaired. **Mechanism without
+> measurable outcome.**
 
 ---
 
 ## 2. What was run
 
-| arm | status | rollouts | tasks × seeds |
-|---|---|---|---|
-| Unblock acceptance (hygiene + vendoring) | **done**, 0 rollouts | 0 | — |
-| `baseline` — noise floor on `glm-5.3-flash` | **running** (launched 10:42 UTC) | 18 | 6 × 3 |
-| `search --budget N` | not started | ~60 | sized from the baseline's measured wall-clock |
-| `baselines` — compute-matched | not started | ~60 | k derived from the search ledger |
-| one ablation | **planned as not fitting** | ~60 | only if the arms above come in under wall-clock |
+| arm | status | rollouts |
+|---|---|---|
+| Unblock acceptance — both §5 blockers settled | **done**, 0 rollouts | 0 |
+| `baseline` — noise floor on `glm-5.3-flash`, 6 tasks × 3 seeds | **done** | 18 |
+| Slice re-cut on the σ-pruned pool | **done, $0.00** (all replayed) | 0 |
+| `search --budget 2` | **ran; produced no evaluated candidate** | 0 new (7 replayed) |
+| `baselines` — compute-matched | **NOT RUN** | 0 |
+| ablation | **NOT RUN** | 0 |
+
+**Why the search produced nothing** — both proposals failed, and the second is a defect:
+
+```
+proposed 2, screened out 0, hygiene-blocked 0, proposer failures 2
+proposal 1 failed: no <prediction> block; every edit must be falsifiable
+proposal 2 failed: z-ai/glm-5.3-flash returned no content
+                   (finish_reason=length, 35617 chars of reasoning):
+                   the token budget was spent thinking.
+```
+
+The proposer's `max_tokens` was 8000 — a figure measured against the same model under its
+old slug in August. It now spends the whole allowance reasoning and returns no answer.
+**Raised to 32000; the arm is one command to re-run.** Note the hygiene gate blocked
+nothing (`hygiene-blocked 0`), so the August blocker is genuinely cleared — this is a
+different failure.
 
 ### Exact commands
 
 ```bash
 cd /home/matt/projects/sci-sim-op
-export PATH="$HOME/.local/bin:$PATH"
-export REPO3_PATH=/home/matt/projects/siga
-export HARNESS_EVOLVE_MODEL=z-ai/glm-5.3-flash
-export REPO3_CONTAINER_BACKEND=enroot
+export PATH="$HOME/.local/bin:$PATH" REPO3_PATH=/home/matt/projects/siga
+export HARNESS_EVOLVE_MODEL=z-ai/glm-5.3-flash REPO3_CONTAINER_BACKEND=enroot
 OUT=/home/matt/projects/sci-sim-op/.evolve/geos_search
 
 uv run python scripts/search_geos.py --stage baseline --parallel 8 --seeds 1,2,3 \
   --timeout 2400 --task-list AdvancedExampleDruckerPrager,buckleyLeverettProblem,\
 ExampleDPWellbore,ExampleIsothermalLeakyWell,ExampleMandel,TutorialSneddon --out $OUT
-
-uv run python scripts/report_geos.py --out $OUT --model z-ai/glm-5.3-flash   # free, any time
+uv run python scripts/rescore_corpus.py --model z-ai/glm-5.3-flash --apply
+uv run python scripts/prune_pool.py   --model z-ai/glm-5.3-flash --drop 2
+uv run python scripts/search_geos.py --stage search --budget 2 --seeds 1,2 \
+  --parallel 8 --timeout 2400 --screen-tasks 0 --out $OUT
+uv run python scripts/report_geos.py  --out $OUT --model z-ai/glm-5.3-flash   # free
 ```
 
 ---
 
 ## 3. What it cost
 
-| reading (UTC) | key `usage` | key `limit` | ceiling | spent this campaign |
-|---|---|---|---|---|
-| 10:12 (baseline reading) | $1.271071 | 10 | $8.729 | $0.000 |
-| 10:36 (owner raised the cap) | $1.283724 | **20** | **$18.729** | $0.0127 |
-| 10:42 (baseline launch) | $1.283724 | 20 | $18.729 | $0.0127 |
+| reading (UTC) | key `usage` | spent this campaign |
+|---|---|---|
+| 10:12 baseline of record | $1.2711 | — |
+| 10:42 baseline launch | $1.2837 | $0.0127 |
+| 12:20 baseline end | $2.2805 | $1.0094 |
+| 12:28 search launch | $4.7682 | $3.4971 |
+| 17:37 | $4.7758 | **$3.5047** |
 
-Full spend curve, one line per poll:
+Ceiling **$18.7289** (the owner raised the key cap mid-run and the polled guard picked it
+up with no restart). Spend curve, one line per poll:
 `/home/matt/projects/sci-sim-op/.evolve/provider_calls.jsonl`
 
-**Money is not the binding constraint; wall-clock is.** $18.73 of headroom buys ~491
-rollouts at the measured $0.0381/rollout, but the 16:00 UTC deadline allows only
-**~164**.
+> **Measured cost is ≈$0.194/rollout — 5× the $0.0381 in
+> `docs/2026-08-26_BUDGET_PLAN.md` §2.** That figure came from a two-task cost probe;
+> these tasks run to the 2400 s timeout with far more turns. **The programme estimate of
+> $21 for 560 rollouts should be read as ≈$109.** Money was not the binding constraint
+> tonight — wall-clock was — but the number in the funding document is wrong by 5×.
 
 ---
 
 ## 4. The numbers
 
-*Nothing to report yet — the baseline arm has not landed.* This section will carry per-task
-means with dispersion, the zero rate, and the per-task minimum. It will not carry a bare
-mean: per-task σ on the previous model spanned **0.0035 to 0.32**, and a mean over that
-without a dispersion statistic is not a result.
+### 4.1 Seed baseline, `z-ai/glm-5.3-flash`, 6 tasks × 3 seeds
 
-### 4.1 Two ablation results already in hand, at zero rollout cost
+```
+n=17 scored (1 harness error excluded)
+mean 0.5919    zero rate 0.059    min 0.0000    max 0.9799
+  ExampleIsothermalLeakyWell    0.9477 +/- 0.0524   n=3
+  AdvancedExampleDruckerPrager  0.9157 +/- 0.0786   n=3
+  buckleyLeverettProblem        0.5855 +/- 0.5170   n=3
+  ExampleDPWellbore             0.5017 +/- 0.3603   n=3
+  ExampleMandel                 0.3355 +/- 0.0084   n=2
+  TutorialSneddon               0.1798 +/- 0.1649   n=3
+```
 
-Carried forward from 2026-08-26 (`stealth/ox-alpha`, n=18), **with the corrections the
-author of that log later applied to their own claims**:
+**Read the tail, not the mean.** The mean of 0.5919 is an average over tasks whose σ spans
+two orders of magnitude and one of which fails outright a third of the time. The
+informative quantities are: **zero rate 0.059**, **per-task minimum 0.0000**
+(`buckleyLeverettProblem`), and the spread itself.
 
-- **The stop policy fires and has nothing to say — on rollouts where the agent ends its
-  turn.** 5/5 `allow`, 0 retries, across a 0.09–0.98 score range. That claim stands.
-- **CORRECTED — it does not follow that the stop policy cannot affect the score.** On the
-  one rollout that scored 0.0000, the stop policy was the *right* instrument and was
-  structurally prevented from running: the rollout timed out, the agent never ended its
-  turn, and the Stop hook only fires at turn end. That is a delivery failure, not
-  inertness.
-- **CORRECTED — the zero rate is not 0.000, it is 0.056.** One rollout in eighteen
-  terminated catastrophically (`--` inside an XML comment, which XML forbids). The
-  regression gate's central clause therefore *does* have something to bind on. The
-  earlier "0.000, so the gate cannot bind" inference is withdrawn.
+### 4.2 The harness change: a clean null, and a mechanism that fired
 
-The corrected version matters for tonight: **the regression gate is live, not inert**, and
-the timeout is a mechanism rather than a nuisance — which is why every arm tonight runs at
-a fixed, generous 2400 s.
+`stealth/ox-alpha` **is** `z-ai/glm-5.3-flash` — the vendor's own retirement notice says
+so, and the August log had quoted it truncated. So the August corpus and tonight's are the
+**same model, same 6 tasks, same 3 seeds, same 2400 s timeout**, differing in the harness:
+2 checks → 5 checks, one cheatsheet line removed, pre-release → production channel.
+
+```
+task                             Aug26 (2 checks)    Sep02 (5 checks)     delta
+AdvancedExampleDruckerPrager     0.9060 +/- 0.0815   0.9157 +/- 0.0786   +0.0097
+ExampleDPWellbore                0.7121 +/- 0.3192   0.5017 +/- 0.3603   -0.2103
+ExampleIsothermalLeakyWell       0.9746 +/- 0.0054   0.9477 +/- 0.0524   -0.0269
+ExampleMandel                    0.2155 +/- 0.1870   0.3355 +/- 0.0084   +0.1200
+TutorialSneddon                  0.0879 +/- 0.0105   0.1798 +/- 0.1649   +0.0919
+buckleyLeverettProblem           0.7801 +/- 0.0035   0.5855 +/- 0.5170   -0.1946
+
+paired mean delta  -0.0350   95% CI [-0.1473, +0.0772]   n=6 tasks   CI SPANS ZERO
+pooled mean        0.6127 -> 0.5919        zero rate     0.056 -> 0.059
+```
+
+And yet the mechanism is real. On the first rollout of the campaign,
+`cross_section_refs` blocked the agent's turn:
+
+```json
+{"decision":"block","reason_category":"vendored_check","retries_so_far":1,
+ "checks_vendored_findings":[{"source":"cross_section_refs","severity":"error",
+   "message":"materialList names 'dummy', which is not a <Constitutive> child.
+              Defined: ['DruckerPrager','ExtendedDruckerPrager','ModifiedCamClay',
+              'ViscoDruckerPrager','ViscoExtendedDruckerPrager','ViscoModifiedCamClay']"}]}
+```
+33 seconds later: `{"decision":"allow","reason_category":"xml_clean"}`. The agent had left
+a placeholder `materialList="{ dummy }"`; the check named it and the six legal
+alternatives; the agent repaired it. **`geosx --validate-input` ran first in the same list
+and passed the deck** — `materialList` resolves at solve time, not load time, a gap the
+hook's own feedback text had warned about in writing before anyone saw it happen.
+
+**So: the instrument works and the score does not move.** That is a specific, reportable
+result, and it corrects the August log in both directions — that session first argued
+vendoring mattered because `required_sections` would catch under-generation, then falsified
+its own claim and generalised to "vendoring would fix nothing measured". The falsification
+was right about `required_sections`; the generalisation was not. `cross_section_refs` was
+in `BUILTIN_CHECKS` the whole time and neither analysis looked at it.
+
+### 4.3 Minimum detectable effect — what this pool *can* resolve
+
+| pool | one arm | arm vs arm |
+|---|---|---|
+| all 6 tasks | 0.1241 | **0.1756** |
+| drop 1 noisiest | 0.0922 | 0.1304 |
+| drop 2 noisiest (the pool the search used) | 0.0538 | **0.0761** |
+
+At 3 seeds, **nothing smaller than ≈0.08 is detectable even on the pruned pool.** Published
+harness-evolution effects in this regime are +1.2 and +0.0 points. **This design cannot
+resolve the effect it is looking for**, and that is a fact about the measurement, not a
+result.
 
 ---
 
 ## 5. What is NOT believable
 
-The most important section, and it is populated before the results rather than after.
-
-1. **Nothing about the search, yet.** No search arm has run. Any statement about whether
-   self-evolution helps on GEOS is, at this timestamp, unsupported.
-2. **The 2026-08-26 numbers are `stealth/ox-alpha`'s and cannot be pooled with anything
-   measured tonight.** That model no longer exists; the 18 rollouts are a frozen dataset.
-   Per-task σ is a property of *model × task*, so even the task-pruning advice in
-   `docs/2026-08-26_BUDGET_PLAN.md` §3.1 is computed from a model we are not running.
-   Tonight's baseline re-measures it.
-3. **`ExampleDPWellbore` is not measurable at this n.** σ = 0.32 on the previous model;
-   at n=3 the 95% interval on its mean is roughly ±0.36. It would need ~41 seeds to detect
-   a 0.2 effect. It is reported separately and excluded from any headline mean.
-4. **`ExampleMandel` is timeout-censored.** It hit the wall on two of three seeds
-   previously. Its rate of hitting the timeout is reported alongside its score.
-5. **The vendored checks are expected to fire at near zero, and that is pre-registered.**
-   `required_sections` is a *section-presence* check; the failure actually measured
-   (`TutorialSneddon`, 38 elements against a 252-element ground truth) has **all** required
-   and optional sections present. `constraints` is a content check and the seed ships an
-   empty constraint set. Vendoring makes them *runnable*; it does not make them able to see
-   under-generation. **No check in the registry measures completeness**, and writing one is
-   not attempted here because every cheap way to write it leaks ground truth through the
-   feedback channel.
-6. **Any arm that does not finish is reported as not-run, never as a number.** A partial
-   arm is uninterpretable, not weaker.
+1. **Anything about whether the search helps.** No candidate was evaluated. The search
+   arm's `best` is its own seed because it is the only thing in the archive.
+2. **No compute-matched baseline was run.** Even had the search produced a winner, it
+   could not be claimed. An unmatched win is not a win.
+3. **§4.2 is observational, not a designed ablation.** Three things changed at once
+   (check set, one cheatsheet line, serving channel), n=6 paired tasks, and the CI hides
+   anything below ≈±0.12. It is assembled after the fact from two runs that were not arms
+   of one experiment.
+4. **σ from n=3 is not a dispersion statistic here.** `buckleyLeverettProblem` moved from
+   σ=0.0035 to σ=0.5170 **with the model held constant**. Its three values are 0.9790,
+   0.7774, 0.0000 — the σ is carried entirely by one discrete failure (deck written outside
+   the ground-truth-relative path), not by continuous spread. Every MDE in §4.3 inherits
+   this and should be read as indicative.
+5. **`ExampleMandel` is n=2**, not 3 — one rollout was lost to an OpenRouter
+   `Upstream idle timeout exceeded`. Its σ=0.0084 is two points and means little.
+6. **`empty_workspace` is a misleading status.** In one case it meant "the agent wrote a
+   complete deck to the path its own PRIMER specifies, which is not where the scorer
+   looks." Left unrenamed so as not to change the dependent variable mid-campaign.
+7. **The August numbers are not a clean control.** They were recorded before the F7 scoring
+   fix and on a pre-release serving channel.
 
 ---
 
 ## 6. Verdict
 
-**Pending.** The null is pre-registered (`docs/PROJECT_PRIMER.md` §7) and is a first-class
-outcome: published evidence (arXiv:2607.12227) predicts a search in this regime returns its
-seed, loses to plain parallel sampling at matched compute, and encodes task-specific
-shortcuts rather than better harness design. If that is what tonight measures, that is the
-result, and it will be reported without softening.
+**`mechanism_only`.** The apparatus is now measuring what it claims to measure, in five
+specific respects where it demonstrably was not this morning. One instrument
+(`cross_section_refs`) is verified working end-to-end inside the container. The score did
+not move. **No claim is made about self-evolution on GEOS, because the experiment that
+would support one did not complete.**
 
-What can already be said: **the apparatus is now measuring what it claims to measure**, in
-two specific respects where it demonstrably was not this morning.
+The pre-registered null (`docs/PROJECT_PRIMER.md` §7) is **not** claimed and must not be
+cited from this run — that would repeat the exact error the August session caught itself
+making in its §16.2: confirming a prediction with a result that contains no information
+about the thing predicted.
+
+### The five defects, since they are the substance of the night
+
+| | defect | what it would have produced |
+|---|---|---|
+| **F1** | Replay key omitted the inference model; 51 rollouts from a retired slug sat in the corpus | the seed baseline every arm is measured against, replayed from another configuration at $0.00, printing a normal-looking resume line |
+| **F2** | Proposer backend defaulted to the retired slug | every proposal 404s → search returns its seed → the pre-registered null, for the wrong reason |
+| **F3** | The F2 fix was committed **without having applied** | as F2. Found by reading the file for an unrelated reason |
+| **F7** | Timed-out rollouts scored before the container workspace finished copying | fabricated `0.0000`s. One re-scored to **0.8250** from the same directory. Inflates the *zero rate* — the campaign's headline tail quantity — and steered `build_slices` to nominate the affected tasks as anchors |
+| **F8** | `Search._evaluate` averaged `harness_error` zeros into candidate scores | an OpenRouter timeout on the seed halved its `ExampleMandel` score, so every child would beat a weakened seed — **manufacturing a positive result** in a campaign pre-registered to expect a null |
+
+Four of the five were found by running something and reading what came out. **The one I got
+wrong (F3) was the one I checked by reading.**
 
 ---
 
-## 7. Artifacts — absolute paths
+## 7. What to do next, in order
+
+1. **Re-run the search** with `max_tokens=32000` (already committed). ~12 rollouts, ~$2.3,
+   ~80 min. This is the missing deliverable.
+2. **Then the compute-matched baselines.** Never ship 1 without 2.
+3. **Raise seeds or shrink the claim.** At 3 seeds the pool cannot resolve anything below
+   ≈0.08; the published effects are far smaller. Either budget for ~5+ seeds on a quiet
+   pool, or state the MDE beside every reported delta.
+4. **Fix the `empty_workspace`/path-layout contract** — decide whether the scorer follows
+   the PRIMER or the PRIMER follows the scorer. It cost a hard zero tonight.
+5. **Correct `docs/2026-08-26_BUDGET_PLAN.md`** to $0.194/rollout.
+
+---
+
+## 8. Artifacts — absolute paths
 
 | what | where |
 |---|---|
 | this report | `/home/matt/projects/sci-sim-op/.evolve/geos_search/REPORT.md` |
 | worklog | `/home/matt/projects/sci-sim-op/worklogs/2026-09-02_overnight.md` |
 | rollout corpus (every number recomputes from this) | `/home/matt/projects/sci-sim-op/.evolve/geos_search/rollouts.jsonl` |
-| pre-migration corpus backup | `/home/matt/projects/sci-sim-op/.evolve/geos_search/rollouts.jsonl.pre-model-tag.bak` |
+| corpus before model tagging | `…/rollouts.jsonl.pre-model-tag.bak` |
+| corpus before F7 re-scoring | `…/rollouts.jsonl.pre-rescore.bak` |
+| search result | `/home/matt/projects/sci-sim-op/.evolve/geos_search/search_result.json` |
+| slice plan / pruned pool | `…/slices.json`, `…/pool.json` |
 | decision log | `/home/matt/projects/sci-sim-op/.evolve/geos_search/decisions.jsonl` |
-| spend curve, one line per poll | `/home/matt/projects/sci-sim-op/.evolve/provider_calls.jsonl` |
-| R1 receipt (hook SHA-pinned) | `/home/matt/projects/sci-sim-op/.evolve/r1_verification/receipt.json` |
-| R1 arms + raw hook events | `/home/matt/projects/sci-sim-op/.evolve/r1_verification/arms.json` |
-| seed adapter | `/home/matt/projects/sci-sim-op/.evolve/seed/` |
-| public-vocabulary allowlist actually used | `/home/matt/projects/sci-sim-op/.evolve/geos_public_vocabulary.json` |
+| spend curve | `/home/matt/projects/sci-sim-op/.evolve/provider_calls.jsonl` |
+| R1 receipt (hook SHA-pinned) + arms | `/home/matt/projects/sci-sim-op/.evolve/r1_verification/` |
+| public-vocabulary allowlist used | `/home/matt/projects/sci-sim-op/.evolve/geos_public_vocabulary.json` |
 | raw rollout workspaces | `/home/matt/projects/sci-sim-op/.evolve/geos_search/rollouts/` |
-| baseline console log | `/tmp/claude-1009/baseline.log` |
-| autonomous-run state and event logs | `/home/matt/projects/sci-sim-op/.autoresearch/` |
+| the check-firing event log (F5) | `…/rollouts/claude_code_repo3_plugin_xmllint_all/evolve-cand_d1c0f1f0f516-s2-AdvancedExampleDruckerPrager/` |
+| console logs | `/tmp/claude-1009/baseline.log`, `/tmp/claude-1009/search.log` |
+| autonomous-run state | `/home/matt/projects/sci-sim-op/.autoresearch/` |
