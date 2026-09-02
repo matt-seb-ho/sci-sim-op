@@ -38,12 +38,29 @@ paying, deliberately.
   `export HARNESS_EVOLVE_MODEL=z-ai/glm-5.3-flash` (`scripts/_geos.py:MODEL` still
   defaults to the now-dead `z-ai/glm-5.2:free`).
 - **Authorized spend: $20 on OpenRouter.**
-- **⚠ The account cannot currently reach $20.** Measured 2026-09-02 10:12:
-  `usage $1.271`, `limit $10`, **`limit_remaining $8.729`**. So the real ceiling tonight
-  is **~$8.50**, which is ~220 rollouts — enough for the priority list in §4, not enough
-  for the full 560-rollout programme. Plan against $8.50. If you exhaust it, **stop
-  spending, write up what you have, and escalate** (`PushNotification`); do not switch to
-  a free model mid-experiment, because that silently changes the independent variable.
+- **The account can afford it; the API key cannot — yet.** Two different numbers, and an
+  earlier draft of this brief conflated them. Measured 2026-09-02 10:21:
+
+  | scope | endpoint | reading |
+  |---|---|---|
+  | **account balance** | `/api/v1/credits` | `total_credits 210`, `total_usage 168.323` → **$41.68 available** |
+  | **this API key** | `/api/v1/key` | `limit 10`, `usage 1.271071093`, **`limit_remaining 8.729`** |
+
+  The `$10` is a **per-key spending cap**, not the balance. The full $20 is affordable to
+  the account; only the key cap is in the way, and it is raised from the OpenRouter
+  dashboard (this key is not a provisioning key, so it cannot raise itself).
+- **Poll the cap; do not hardcode it.** Before each rollout batch read `/api/v1/key` and
+  recompute the ceiling as `min(20.00, limit_remaining)` of *additional* spend, measured
+  against the `usage` baseline of **$1.271071093**. If the owner raises the key limit
+  while you are running, `limit_remaining` jumps and you should simply keep going, up to
+  the full $20 — no restart, no confirmation, log the change at `level=decision`.
+- **Stop rule.** Halt spending when additional spend since baseline reaches the current
+  ceiling, or when `limit_remaining` falls below the cost of one more batch. Then write up
+  what you have and escalate (`PushNotification`). Do **not** switch to a free model
+  mid-experiment — that silently changes the independent variable.
+- **Plan pessimistic, spend into optimistic.** Sequence so the first ~$8.50 buys the §4
+  priority items in order (~220 rollouts). If the cap is raised, §4 item 5 — the ablations,
+  which are the programme's real deliverable — comes into range. Take them in §4's order.
 
 **Enforcement — do this before spending anything.** The existing `CostLedger` hard-stops
 on *non-zero* cost, which was the free-window rule and will abort instantly on a paid
@@ -51,10 +68,11 @@ model. It also only sees *proposer* calls; **rollout cost is spent by the agent 
 container and is invisible to it.** So:
 
 1. Change the policy from "cost must be zero" to "cumulative cost must stay under a cap".
-2. Enforce it against the account, not just local accounting: poll
-   `https://openrouter.ai/api/v1/key` (send a `User-Agent`) and read `data.usage`.
-   Baseline is **$1.271071093**; hard-stop when it exceeds **$9.75** (i.e. ~$8.50 spent,
-   leaving headroom).
+2. Enforce it against the provider, not just local accounting: poll
+   `https://openrouter.ai/api/v1/key` (send a `User-Agent`) and read both `data.usage` and
+   `data.limit_remaining`. Baseline `usage` is **$1.271071093**; hard-stop when
+   `usage - 1.271071093 >= min(20.00, limit_remaining)`. Check `/api/v1/credits` once at
+   start to confirm the account balance is not the binding limit (it was $41.68 at 10:21).
 3. Poll it between rollout batches, and log every reading to `.evolve/provider_calls.jsonl`.
 4. Keep per-generation attribution in the loop. `docs/2026-08-26_BUDGET_PLAN.md` §2.1
    records a rollout nominally on one model that was **85% billed to Claude Sonnet 5** via
