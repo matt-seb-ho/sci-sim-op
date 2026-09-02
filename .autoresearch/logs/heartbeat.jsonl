@@ -14,3 +14,4 @@
 {"ts": "2026-09-02T19:01:07.725689Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "3 arms"}
 {"ts": "2026-09-02T19:01:47.530735Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
 {"ts": "2026-09-02T19:02:15.094244Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
+{"ts": "2026-09-02T19:13:11.392572Z", "source": "orchestrator", "level": "info", "event": "wakeup", "detail": "scheduled"}

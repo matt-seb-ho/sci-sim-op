@@ -1,14 +1,14 @@
 {
-  "elapsed_s": 909.9,
+  "elapsed_s": 5467.9,
   "ablated": [],
   "hygiene_scope": "all",
   "hygiene_profile": "train",
   "ablation_notes": [],
-  "summary": "proposed 2, screened out 0, hygiene-blocked 0, proposer failures 2, probe rollouts 1\narchive: 1 candidates, 1 accepted, 1 on the frontier\nbest: cand_d1c0f1f0f516 mean=0.7454 gen=0\n  frontier cand_d1c0f1f0f516 mean=0.7454 gen=0\ndecisions: 0, accepted 0%, cycling 0%\nproposer calibration: mean hit rate n/a over 0 predictions\ntotal rollout cost: {'tool_calls': 320.0, 'wall_seconds': 4897.876, 'input_tokens': 855180.0, 'output_tokens': 162669.0, 'usd': 0.28521632}\nvalidator constraints: 0 directive(s) over 1 round(s), 0% naming an action space, 0 constraint(s) at support >= 2\ncand_d1c0f1f0f516: 1 harness error(s) excluded from selection (ExampleMandel/seed2)\nproposal 1 failed: no <prediction> block; every edit must be falsifiable\nproposal 2 failed: every free route failed or is disabled; tried 1: openrouter/z-ai/glm-5.3-flash: openrouter/z-ai/glm-5.3-flash returned no content (finish_reason=length, 35617 chars of reasoning): the token budget was spent thinking. Raise max_tokens -- this model needs room to reason *and* answer.",
+  "summary": "proposed 2, screened out 0, hygiene-blocked 0, proposer failures 0, probe rollouts 1\narchive: 3 candidates, 1 accepted, 1 on the frontier\nbest: cand_d1c0f1f0f516 mean=0.7454 gen=0\n  frontier cand_d1c0f1f0f516 mean=0.7454 gen=0\ndecisions: 2, accepted 0%, cycling 0%\nproposer calibration: mean hit rate 0.25 over 2 predictions\nedit types: add=2\nrejections: efficiency regression on tool_calls=2, efficiency regression on wall_seconds=1, per-task regression on ExampleMandel=1, cumulative regression vs seed on ExampleMandel=1\ntotal rollout cost: {'tool_calls': 1055.0, 'wall_seconds': 12738.957, 'input_tokens': 2404771.0, 'output_tokens': 392853.0, 'usd': 0.7654661049999999}\nvalidator constraints: 0 directive(s) over 3 round(s), 0% naming an action space, 0 constraint(s) at support >= 2\ncand_d1c0f1f0f516: 1 harness error(s) excluded from selection (ExampleMandel/seed2)",
   "n_proposed": 2,
   "n_screened_out": 0,
   "n_hygiene_blocked": 0,
-  "n_proposer_failures": 2,
+  "n_proposer_failures": 0,
   "stagnated": false,
   "best": "cand_d1c0f1f0f516",
   "best_mean": 0.7453666666666666,
@@ -23,13 +23,35 @@
         "ExampleIsothermalLeakyWell": 0.9336,
         "AdvancedExampleDruckerPrager": 0.9611
       }
+    },
+    {
+      "cid": "cand_e4345ff8953c",
+      "mean": 0.84135,
+      "accepted": false,
+      "reason": "efficiency regression on tool_calls: 1.33x (limit 1.15x); efficiency regression on wall_seconds: 1.23x (limit 1.15x)",
+      "scores": {
+        "ExampleMandel": 0.5984,
+        "ExampleIsothermalLeakyWell": 0.96455,
+        "AdvancedExampleDruckerPrager": 0.9611
+      }
+    },
+    {
+      "cid": "cand_980497a57a8e",
+      "mean": 0.6820833333333334,
+      "accepted": false,
+      "reason": "per-task regression on ExampleMandel: -0.181 (limit -0.050); cumulative regression vs seed on ExampleMandel: -0.181 (limit -0.100); efficiency regression on tool_calls: 1.18x (limit 1.15x)",
+      "scores": {
+        "ExampleMandel": 0.16085,
+        "ExampleIsothermalLeakyWell": 0.97375,
+        "AdvancedExampleDruckerPrager": 0.91165
+      }
     }
   ],
-  "search_rollouts": 7,
+  "search_rollouts": 19,
   "search_cost": {
-    "tool_calls": 320.0,
-    "wall_seconds": 4897.876,
-    "usd": 0.28521632
+    "tool_calls": 1055.0,
+    "wall_seconds": 12738.957,
+    "usd": 0.7654661049999999
   },
   "proposer_stats": {
     "routes": [
@@ -37,28 +59,28 @@
         "route": "openrouter/z-ai/glm-5.3-flash",
         "model": "z-ai/glm-5.3-flash",
         "limit": 8,
-        "successes": 1,
+        "successes": 2,
         "throttles": 0,
-        "failures": 1,
+        "failures": 0,
         "disabled": null
       }
     ],
     "calls": 2,
-    "total_cost": 0.0086489,
+    "total_cost": 0.004313225,
     "unknown_cost_calls": 0
   },
   "budget": {
     "baseline_usd": 1.271071093,
     "authorized_usd": 20.0,
-    "readings": 0,
+    "readings": 12,
     "tripped": false,
     "trip_reason": "",
-    "usage": null,
-    "key_limit": null,
-    "limit_remaining": null,
-    "spent_this_campaign": null,
-    "ceiling_usd": null,
-    "headroom_usd": null
+    "usage": 7.842835718,
+    "key_limit": 20.0,
+    "limit_remaining": 12.157164282,
+    "spent_this_campaign": 6.571765,
+    "ceiling_usd": 18.728929,
+    "headroom_usd": 12.157164
   },
   "model": "z-ai/glm-5.3-flash"
 }

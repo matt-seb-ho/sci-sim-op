@@ -1,9 +1,9 @@
 {
-  "iteration": 16,
+  "iteration": 17,
   "total_findings": 9,
   "status": "running",
   "stale_count": 0,
-  "last_seen": "2026-09-02T19:02:15.094244Z",
+  "last_seen": "2026-09-02T19:13:11.392572Z",
   "milestone": "turn-cap diagnosis received; implementing cap + validate-only line",
   "deadline_utc": "2026-09-02T21:00:00Z",
   "launch_cutoff_utc": "2026-09-02T20:00:00Z",

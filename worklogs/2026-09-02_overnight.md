@@ -1757,3 +1757,80 @@ loadavg_15m 315.13 on 128 cores  ->  2.46 per core
 Up from 0.87 earlier: three of our own arms plus the other users. **Every wall-clock number
 from this window is measured under heavy contention and must not be read as model
 latency.** The rollouts themselves are unaffected in *content* — only in how long they take.
+
+---
+
+## 25. **SEARCH COMPLETE — P1 confirmed, and the rejection reason is the finding** (19:13)
+
+```
+=== search finished in 91.1 min, 19 rollouts ===
+proposed 2, screened out 0, hygiene-blocked 0, proposer failures 0, probe rollouts 1
+archive: 3 candidates, 1 accepted, 1 on the frontier
+best: cand_d1c0f1f0f516 mean=0.7454 gen=0        <- THE SEED
+decisions: 2, accepted 0%, cycling 0%
+proposer calibration: mean hit rate 0.25 over 2 predictions
+edit types: add=2
+total rollout cost: tool_calls 1055, wall 12739 s, in 2 404 771 tok, out 392 853 tok, usd 0.765
+```
+
+**The search returned its seed. P1 is confirmed, and this time it is a real null** — two
+proposals, **zero hygiene blocks, zero proposer failures**, both children fully evaluated
+on the anchor slice, neither accepted. Contrast 2026-08-26 §16, where 3/3 died at the
+hygiene gate and the identical headline meant nothing.
+
+### 25.1 The archive — and why the best-scoring candidate was rejected
+
+```
+cand_d1c0f1f0f516  mean 0.7454  accepted=True   reason: seed
+cand_e4345ff8953c  mean 0.8414  accepted=False  reason: efficiency regression on
+                                                 tool_calls 1.33x (limit 1.15x)
+cand_980497a57a8e  mean 0.6821  accepted=False  reason: per-task regression on
+                                                 ExampleMandel -0.181 (limit -0.050)
+```
+
+**The highest-scoring candidate in the run scored `0.8414` against the seed's `0.7454` —
++0.096 on the anchor mean — and was rejected anyway, on efficiency.** It bought its
+apparent gain with **1.33× the tool calls**, against a 1.15× limit.
+
+That is `docs/PROJECT_PRIMER.md` §7 working exactly as designed — *"efficiency is an
+acceptance gate, not a metric"* — and it is the most useful single thing this run produced,
+because it is a live instance of the failure the gate exists to prevent. It also lands
+precisely on tonight's independent turn-count diagnosis: **the one proposal that looked
+like an improvement was the one that spent more turns.** Had the gate not been there, the
+campaign would be reporting +0.096 as a win.
+
+And +0.096 is not a win on its own terms either: §21's paired test puts the same candidate
+at **+0.1159 with a CI of [−0.0825, +0.3143]**, spanning zero, with 89% of it from one
+cell. **Two independent instruments — the efficiency gate and the paired CI — reject the
+same candidate for two different reasons.**
+
+The second candidate was rejected by the **regression gate** on a per-task clause
+(`ExampleMandel −0.181` against a −0.050 limit). So of the four adopted ingredients, **two
+fired and both bound**: the efficiency gate and the regression gate each rejected one
+candidate. That is a direct, if n=1-per-arm, answer to *which ingredient carries the gain*
+— tonight neither carried gain; both carried **refusal**, which is what a search in this
+regime should mostly do.
+
+### 25.2 Proposer calibration, worth recording
+
+`mean hit rate 0.25 over 2 predictions`, `edit types: add=2`. The proposer made falsifiable
+predictions and got one in four right. Both edits were additive — no proposal attempted a
+deletion or a rewrite, which is the monotone-growth pathology Self-Harness's minimal-edit
+rule exists to counter, visible here at n=2.
+
+### 25.3 Priority 3 launched: compute-matched baseline, k derived from the ledger
+
+```
+k = ceil(19 / 6) = 4;  baseline spends 24 rollouts, 5 more than the search's 19
+draw seeds needed: [1000,1001,1002,1003] and [2000,2001,2002,2003]
+```
+
+k comes from **what the search actually spent — 19 rollouts, every one of them, including
+the two rejected candidates** — not from what it accepted. Twelve draws were banked during
+the search's idle proposer calls (§18.1); the remaining twelve launched at 19:14 at
+`--parallel 12` because wall-clock, not money, is the binding constraint and the launch gate
+is 20:00 UTC. Over-matching by 5 rollouts is the safe direction: it favours the baseline,
+not the search.
+
+Capacity at launch: **load 345.49 on 128 cores, 2.70 per core.**
+Console: `/tmp/claude-1009/topup.log`. Spend: **$6.57 of $18.73**.
