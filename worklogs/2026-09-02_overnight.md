@@ -942,3 +942,47 @@ nobody had tried. The instrument that mattered was the one not being discussed.
 - Whether this changes anything the *search* can do is a separate question: `checks` is
   **not in the search space** (§26 of the previous log), so this is a better constant, not
   a better search.
+
+---
+
+## 14. Baseline in flight — two things worth recording as they land (11:13)
+
+```
+AdvancedExampleDruckerPrager  seed 1   0.9611  success
+AdvancedExampleDruckerPrager  seed 2   0.9611  success
+TutorialSneddon               seed 1   0.0772  success
+ExampleMandel                 seed 2   0.0000  harness_error
+```
+
+### 14.1 A provider-side failure, correctly not counted as a model failure
+
+```
+$ .../evolve-cand_d1c0f1f0f516-s2-ExampleMandel/ExampleMandel/status.json
+elapsed 360.6   exit 1
+latest_agent_response: "API Error: Upstream idle timeout exceeded"
+inputs/  empty     outputs/  empty
+```
+
+**This is OpenRouter, not the harness and not the vendoring.** The rollout produced no
+deck at all, and the corpus records it as `harness_error` with value 0.0000 — which
+`report_geos.py` excludes from every average. That is the §5.3/§8.3/§25.1 machinery from
+the previous session doing exactly its job: without it this enters the corpus as a 0.0 and
+drags `ExampleMandel`'s mean down by a third, on the task that already carries the pool's
+only catastrophic failures.
+
+Watching the rate rather than reacting to n=1. At 1-in-4 it would cost real capacity; the
+arm will say. **It also costs 6 minutes of wall-clock for nothing**, which under a 15:00
+launch gate is the more expensive half.
+
+### 14.2 An identical score on two different seeds
+
+`AdvancedExampleDruckerPrager` returned **0.9611 on both seed 1 and seed 2** — two
+separately executed rollouts (both printed as they landed, both written to the corpus as
+`executed`, distinct `artifacts_dir`). Not a replay: F1's fix is exactly what would have
+made this suspicious, and it is not that.
+
+The scorer is a structural tree similarity against the reference deck, so two runs that
+converge on the same deck structure score identically. Recorded now because **σ = 0.0000
+for this task so far, against ox-alpha's σ = 0.0815** — if that holds through seed 3 it is
+a real difference between the models in run-to-run stability, and it is the kind of thing
+that would otherwise be noticed only after being used.
