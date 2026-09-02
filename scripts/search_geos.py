@@ -413,7 +413,15 @@ def cmd_search(args: argparse.Namespace) -> int:
             (MODEL,), ledger_path=REPO / ".evolve" / "provider_calls.jsonl"),
         # ox-alpha is a reasoning model: at a small budget it spends the whole
         # allowance thinking and returns no content at all (§3.3).
-        config=LLMProposerConfig(max_tokens=8000),
+        # A reasoning model at a small budget spends the whole allowance
+        # thinking and returns no content at all. 8000 was measured against
+        # `stealth/ox-alpha` on 2026-08-26 and was enough *then*; on 2026-09-02
+        # the same model under its production slug spent **35,617 characters of
+        # reasoning** and returned no answer, killing the second of two
+        # proposals and leaving the search with nothing to evaluate. The budget
+        # has to cover reasoning *and* the answer, and the reasoning is the part
+        # that grows with the prompt.
+        config=LLMProposerConfig(max_tokens=32000),
     )
     if "delta" in ablate:
         seed = lift_budgets(seed)

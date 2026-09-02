@@ -467,7 +467,11 @@ class AnthropicBackend:
     """
 
     model: str = "claude-opus-5"
-    max_tokens: int = 8000
+    #: Raised from 8000 on 2026-09-02: `z-ai/glm-5.3-flash` (the production
+    #: slug for what was `stealth/ox-alpha`) spent 35,617 characters reasoning
+    #: and returned no content, which surfaces as a proposer failure and an
+    #: empty search rather than as an error anyone would look for.
+    max_tokens: int = 32000
     effort: str = "high"
     timeout_s: float = 300.0
     name: str = "anthropic"
@@ -634,7 +638,11 @@ class RoutedBackend:
     #: Generous because the roster is reasoning models: measured 2026-08-26,
     #: ox-alpha spends the whole budget thinking and returns no content at 300,
     #: and answers normally at 1500. A proposal is longer than that prompt was.
-    max_tokens: int = 8000
+    #: Raised from 8000 on 2026-09-02: `z-ai/glm-5.3-flash` (the production
+    #: slug for what was `stealth/ox-alpha`) spent 35,617 characters reasoning
+    #: and returned no content, which surfaces as a proposer failure and an
+    #: empty search rather than as an error anyone would look for.
+    max_tokens: int = 32000
     temperature: float = 0.8
     timeout_s: float = 300.0
     attempts_per_route: int = 4

@@ -1166,3 +1166,105 @@ to the 2400 s timeout with far more turns. **The programme estimate of $21 for 5
 should be read as ≈$109.** Money still is not tonight's binding constraint — $15.23 remains,
 ~78 rollouts at the measured rate — but the number in the funding document is wrong by 5×
 and that matters more than tonight's arithmetic.
+
+---
+
+## 16. **CORRECTION — `stealth/ox-alpha` *is* `z-ai/glm-5.3-flash`. There was never a model change.** (17:40)
+
+The user raised this and it is correct. The full end-of-life string was in our own ledger
+the whole time; the 2026-08-26 log quoted it **truncated**, and its author read the
+truncation as a different model:
+
+```
+$ grep ox-alpha /home/matt/projects/sci-sim-op/.evolve/provider_ledger.jsonl
+"Thank you for participating in the Stealth Ox Alpha testing period.
+ This model was ZAI's GLM-5.3 Flash. Use it now: https://openrouter.ai/z-ai/glm-5.3-flash"
+```
+
+The previous worklog rendered it `"This model was ZAI's GLM-5.3 Fl..."` and then wrote, in
+prose, *"`stealth/ox-alpha` was ZAI's GLM-5.3"* — dropping the word the truncation had cut.
+**`stealth/ox-alpha` and `z-ai/glm-5.3-flash` are the same model under two slugs**, one a
+retired pre-release channel.
+
+### 16.1 What this invalidates — §15.5, in my own words, was wrong
+
+§15.5 is headed *"D5 vindicated: pruning on last week's model's σ would have picked the
+worst task"* and reads the σ shift as a **model × task** effect, citing the previous log's
+rule that *"per-task σ is a property of model × task."* **There was no model change, so
+that reading is withdrawn.**
+
+**CORRECTION applied in place:** the σ table in §15.5 is still correct as *numbers*; its
+*interpretation* is not. It compares two harness configurations on one model, not two
+models.
+
+### 16.2 What survives, and is stronger for it
+
+D5 — *prune on measured σ, not stored σ* — is **not** weakened. It is better supported, for
+a different reason:
+
+> `buckleyLeverettProblem` moved from σ = 0.0035 to σ = 0.5170 **without the model
+> changing at all.** If σ were a stable property of (model, task), that could not happen.
+> So a σ measured from three rollouts is not a property one may store and reuse a week
+> later — not across models, and, it turns out, not even within one.
+
+Inspecting the scores says why, and it is not "noise": buckleyLeverett's three Sep-02
+values are **0.9790, 0.7774, 0.0000**. The σ is carried almost entirely by the single
+0.0000, which §15.2 established is a *discrete layout failure* (deck written to `inputs/`
+instead of the ground-truth-relative path), not continuous wobble. **A σ estimated from
+n=3 over a mixture of a smooth component and a rare discrete failure is not a meaningful
+dispersion statistic at all**, and the MDE table built on it inherits that. Recorded as a
+limitation of the method, including my own use of it.
+
+### 16.3 What it buys: an unplanned near-paired ablation of the harness change, for $0
+
+The two corpora are the **same model, same 6 tasks, same 3 seeds, same 2400 s timeout**.
+What differs is the harness:
+
+| | Aug 26 arm | Sep 02 arm |
+|---|---|---|
+| slug / channel | `stealth/ox-alpha` (pre-release) | `z-ai/glm-5.3-flash` (production) |
+| candidate | `cand_78856ef8131e` | `cand_d1c0f1f0f516` |
+| adapter | seed | seed **minus** the `kgdToughnessDominated` line (D1) |
+| checks running in the hook | `parse`, `geosx_validate` | **+ `required_sections`, `constraints`, `cross_section_refs`** (D2) |
+| scoring | as recorded | F7 settle fix + corpus re-scored |
+
+So it is an approximate ablation of **D2 — the vendored checks — the very change whose
+value was argued about across two sessions.** Paired by task:
+
+```
+task                             Aug26 (2 checks)    Sep02 (5 checks)     delta
+AdvancedExampleDruckerPrager     0.9060 +/- 0.0815   0.9157 +/- 0.0786   +0.0097
+ExampleDPWellbore                0.7121 +/- 0.3192   0.5017 +/- 0.3603   -0.2103
+ExampleIsothermalLeakyWell       0.9746 +/- 0.0054   0.9477 +/- 0.0524   -0.0269
+ExampleMandel                    0.2155 +/- 0.1870   0.3355 +/- 0.0084   +0.1200
+TutorialSneddon                  0.0879 +/- 0.0105   0.1798 +/- 0.1649   +0.0919
+buckleyLeverettProblem           0.7801 +/- 0.0035   0.5855 +/- 0.5170   -0.1946
+
+paired mean delta  -0.0350   95% CI [-0.1473, +0.0772]   n=6 tasks   -> CI SPANS ZERO
+pooled mean        0.6127 -> 0.5919          zero rate  0.056 -> 0.059
+```
+
+**A clean null on the harness change.** Vendoring three extra checks and removing one
+cheatsheet line moved neither the mean nor the zero rate detectably, on 35 rollouts across
+6 tasks.
+
+This sits *alongside* F5 rather than contradicting it, and the pair is the more interesting
+object: `cross_section_refs` demonstrably **fired, blocked a turn, and got a placeholder
+`materialList="{ dummy }"` repaired** — a real mechanism, verified in the hook's own event
+log — **and the score did not move.** Mechanism without measurable outcome is a specific,
+reportable finding, and it is the shape `docs/PROJECT_PRIMER.md` §7 warns to expect.
+
+**Confounds, stated plainly:** three things changed at once (checks, one cheatsheet line,
+serving channel), n=6 paired tasks, and the CI is wide enough to hide anything smaller than
+about ±0.12. This is an *observational* contrast assembled after the fact from two runs
+that were not designed as arms of one experiment. It is not a substitute for
+`--ablate`, and it is not offered as one.
+
+### 16.4 Consequence for F1 — the fix stands, the label was doing more work than it should
+
+F1 made the inference model part of the replay key, and that is still right: replaying one
+condition as another is the defect, whatever it is called. But this episode shows the key
+is a **slug**, not a model — two slugs served the same weights, and a third could serve
+different weights under one slug tomorrow. The honest position is that the key prevents the
+*silent* case and that pooling remains a **judgment about configuration** (channel, check
+set, adapter), which is why §16.3 is labelled observational rather than pooled.
