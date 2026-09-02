@@ -20,3 +20,5 @@
 {"ts": "2026-09-02T19:29:10.400267Z", "source": "orchestrator", "level": "warn", "event": "external_intervention", "detail": "owner killed 14 full GEOS solves at ~19:30Z, spared 2 --validate-input; rollouts in flight may show killed/non-zero geosx exits"}
 {"ts": "2026-09-02T19:35:09.887502Z", "source": "orchestrator", "level": "info", "event": "wakeup", "detail": "scheduled"}
 {"ts": "2026-09-02T19:40:18.443332Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
+{"ts": "2026-09-02T19:51:16.508928Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll drain"}
+{"ts": "2026-09-02T19:56:09.155052Z", "source": "orchestrator", "level": "info", "event": "wakeup", "detail": "scheduled"}

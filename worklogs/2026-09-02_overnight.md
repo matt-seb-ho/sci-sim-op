@@ -2051,3 +2051,60 @@ P1 said: *the search returns its seed, or a candidate whose paired CI against th
 spans zero.* Both halves are now true simultaneously — the search returned its seed, and
 the best child's CI spans zero on the anchor slice **and** on the one cell that made it
 look otherwise. **P1 is confirmed, and no longer weakly.**
+
+---
+
+## 29. The solves came back — and the reason is a real gap in how the directive can be enforced (19:56)
+
+Twenty-six minutes after the owner's intervention, six `geosx` solves are running again:
+
+```
+1026302  00:41  2872%  /opt/geosx-install/bin/geosx -i _test_entry.xml
+ 963061  24:18  2495%  /opt/geosx-install/bin/geosx -i /workspace/inputs/PoroElastic_Mandel.xml -x 1
+ 960307  25:17  2363%  /opt/geosx-install/bin/geosx -i /workspace/inputs/PoroElastic_Mandel.xml -x 1 -y 1 -z 1 -o /tmp/mandel_run3
+ 970570  22:07  1837%  /opt/geosx-install/bin/geosx -i /tmp/mandeltest/PoroElastic_Mandel_base.xml -o /tmp/mandeltest/output
+ 972150  21:39   512%  /opt/geosx-install/bin/geosx -i PoroElastic_Mandel_benchmark_fim.xml
+1013108  06:00    52%  /opt/geosx-install/bin/geosx -i /tmp/smoke3.xml -o /tmp/smoke3out
+load average 554 on 128 cores        none of them carry --validate-input
+```
+
+**Note the binary path: `/opt/geosx-install/bin/geosx`, not
+`/home/brian/.geosx_docker_runtime/install/bin/geosx`.** These are running **inside the
+rollout containers**, against `/workspace/inputs/` and `/tmp/mandeltest/`. The owner's
+kill operated on the host and reached the host-side processes; the container-side ones
+were never in its process namespace.
+
+### 29.1 Three ways to stop this, and only one of them works
+
+| approach | verdict |
+|---|---|
+| host-side `pkill geosx` | **misses them** — different namespace, different binary path |
+| killing the rollout | kills the *rollout*, not just the solve, and these rollouts are the compute-matched baseline draws |
+| **the adapter constraint (D8)** | **the only one that works**, because it prevents the agent from starting the solve in the first place |
+
+This is a useful negative result about enforcement: **an operational kill cannot implement
+the validation-only policy; only the instruction can.** It also explains why the directive
+says "every rollout launched from now carries the constraint" rather than "kill the
+solves" — the rollouts now finishing were launched at 19:14, before the constraint existed,
+and nothing available to me can retroactively remove the behaviour from them without
+destroying the arm they belong to.
+
+### 29.2 Not killed, deliberately
+
+The owner's instruction was to let in-flight rollouts drain, and **these six solves belong
+to the k=4 top-up — the compute-matched baseline draws I have been told to protect above
+everything else.** Killing them would risk the agent retrying, burning more turns, or
+producing an empty workspace on the one arm that makes the paired number claimable.
+
+Cost of that decision, stated: spend is **$15.33 with $4.67 of headroom** and still
+climbing while these run. The budget guard stops *starting* new rollouts at the ceiling and
+nothing new is queued, so the exposure is bounded by what is already in flight.
+
+**Cost poll 19:51:30Z:** `usage $15.3326`, `limit 20.0`, `remaining $4.6674`,
+spent-this-campaign `$14.0615`, account available `$22.88`.
+
+**CORRECTION to a figure I quoted at 19:51:** the replication arm's own log printed
+`spent $8.4460 / usage $9.7171`. That was a **stale cached poll** — the guard rate-limits
+to one reading per 45 s and that process was holding an old one. The live figure was
+`$15.3326`. Any spend number in this log that came from an arm's own banner rather than a
+live `/api/v1/key` read should be treated as a lower bound.
