@@ -1985,3 +1985,69 @@ The honest handling, and the one the freeze will apply:
 
 No further launches. Let the 8 remaining matched-baseline draws drain, run `--stage
 baselines` as **replay** once they land, drop the ablation. Headroom **$6.58**.
+
+---
+
+## 28. **REPLICATION RESULT — the +0.5176 does not replicate** (19:40)
+
+The experiment §21.2 asked for, and it answers the question.
+
+`ExampleMandel`, champion `cand_e4345ff8953c`, all six draws:
+
+```
+seed     1   0.8590   success        <- the original outlier
+seed     2   0.3378   success
+seed     3   0.3259   success
+seed  1000   0.0000   parse_error    <- a hard zero the seed did not produce
+seed  1001   0.3414   success
+seed  2000   0.3207   success
+```
+
+**Five of six sit in the same 0.32–0.34 band as the parent. One is a catastrophic zero.
+The 0.8590 happened once and never again.**
+
+Paired against the seed on the five cells where both arms have a usable rollout:
+
+```
+seed     1   seed 0.3414  champ 0.8590   +0.5176
+seed     3   seed 0.3295  champ 0.3259   -0.0036
+seed  1000   seed 0.3296  champ 0.0000   -0.3296     <- champion parse_error
+seed  1001   seed 0.3360  champ 0.3414   +0.0054
+seed  2000   seed 0.1622  champ 0.3207   +0.1585
+seed     2   DROPPED (seed harness error)
+
+paired mean +0.0697   95% CI [-0.1996, +0.3389]   n=5   CI SPANS ZERO
+```
+
+### 28.1 What this settles
+
+**§21's headline is retired.** The +0.1159 paired mean rested 89% on one cell; that cell is
+now one draw out of six, the other five are indistinguishable from the parent, and the
+champion additionally produced a `parse_error` **hard zero on a task where the seed never
+failed in six attempts**. On this task the champion is, if anything, *more* erratic than
+its parent — a wider distribution around the same centre, not a shift.
+
+So the verdict is not merely "no detectable difference". It is the stronger and more
+useful: **the one apparent effect in the entire campaign was a single draw, and buying five
+more draws dissolved it.** That is exactly what §24.1 of the previous session predicted
+would happen to any n=1 improvement on this pool, written down before we saw it, and it is
+the cheapest useful experiment of the night at four rollouts.
+
+### 28.2 Three independent instruments now agree on the same candidate
+
+| instrument | verdict on `cand_e4345ff8953c` |
+|---|---|
+| **efficiency gate** | rejected — 1.33× tool calls against a 1.15× limit |
+| **paired CI on the anchor slice** | +0.1159, CI [−0.0825, +0.3143], spans zero |
+| **replication of the driving cell** | +0.0697, CI [−0.1996, +0.3389], spans zero; the outlier does not recur |
+
+Three different mechanisms, three different reasons, one conclusion. **A campaign that had
+stopped at the anchor slice would have reported a positive point estimate above its own
+MDE.** The replication is what turns that into a defensible null.
+
+### 28.3 And the pre-registered prediction it vindicates
+
+P1 said: *the search returns its seed, or a candidate whose paired CI against the seed
+spans zero.* Both halves are now true simultaneously — the search returned its seed, and
+the best child's CI spans zero on the anchor slice **and** on the one cell that made it
+look otherwise. **P1 is confirmed, and no longer weakly.**
