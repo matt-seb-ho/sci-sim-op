@@ -535,10 +535,23 @@ def cmd_baselines(args: argparse.Namespace) -> int:
     )
     print(budget_plan.note)
     for name, res in results.items():
-        print(f"  {name:<24} mean {res.mean:.4f}")
+        # BaselineResult has no `.mean`: a baseline's headline number depends on
+        # which selector you read it with, and collapsing that to one attribute
+        # is how "best-of-k" silently becomes the oracle number. `.arm()`
+        # applies the arm's own selector and returns the per-task scores.
+        arm = res.arm()
+        overall = statistics.mean(arm.all_values())
+        print(f"  {name:<28} mean {overall:.4f}   ({res.arm_label})")
+        for t in sorted(arm.tasks):
+            print(f"      {t:<34} {arm.aggregate(t):.4f}  n={len(arm.per_task[t])}")
     (out / "baselines.json").write_text(json.dumps(
         {"plan": budget_plan.note,
-         "results": {k: {"mean": v.mean, "label": v.arm_label} for k, v in results.items()},
+         "results": {k: {"mean": statistics.mean(v.arm().all_values()),
+                         "label": v.arm_label,
+                         "per_task": {t: list(vals)
+                                      for t, vals in v.arm().per_task.items()},
+                         "selector": v.selector_name}
+                     for k, v in results.items()},
          "budget": guard.summary()},
         indent=2, default=str))
     print(runner.inner.summary())

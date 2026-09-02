@@ -22,3 +22,4 @@
 {"ts": "2026-09-02T19:40:18.443332Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
 {"ts": "2026-09-02T19:51:16.508928Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll drain"}
 {"ts": "2026-09-02T19:56:09.155052Z", "source": "orchestrator", "level": "info", "event": "wakeup", "detail": "scheduled"}
+{"ts": "2026-09-02T19:59:07.773791Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "drain poll"}

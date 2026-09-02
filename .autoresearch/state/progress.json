@@ -1,9 +1,9 @@
 {
-  "iteration": 24,
+  "iteration": 25,
   "total_findings": 9,
   "status": "running",
   "stale_count": 0,
-  "last_seen": "2026-09-02T19:56:09.155052Z",
+  "last_seen": "2026-09-02T19:59:07.773791Z",
   "milestone": "external intervention: 14 solves killed by owner; marking affected rollouts",
   "deadline_utc": "2026-09-02T21:00:00Z",
   "launch_cutoff_utc": "2026-09-02T20:00:00Z",

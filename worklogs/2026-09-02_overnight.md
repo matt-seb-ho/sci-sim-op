@@ -2108,3 +2108,70 @@ spent-this-campaign `$14.0615`, account available `$22.88`.
 to one reading per 45 s and that process was holding an old one. The live figure was
 `$15.3326`. Any spend number in this log that came from an arm's own banner rather than a
 live `/api/v1/key` read should be treated as a lower bound.
+
+---
+
+## 30. COMPUTE-MATCHED BASELINE — priority 3 complete, $0.00 (20:02)
+
+```
+k = ceil(19 / 6) = 4;  baseline spends 24 rollouts, 5 more than the search's 19
+30 rollout(s): 0 executed, 30 replayed from the corpus
+```
+
+**Every draw replayed. The arm cost nothing** — the banking strategy from §18.1 paid for
+itself exactly as intended, and k was still derived from the ledger after the fact.
+
+| arm | task-mean | vs search |
+|---|---|---|
+| **search** (best = seed `cand_d1c0f1f0f516`) | **0.7454** | — |
+| `seed_control` | 0.7454 | +0.0000 |
+| `best_of_k_oracle` (k=4) | **0.7686** | **+0.0232** |
+| `best_of_k_validator` (k=4) | 0.7324 | −0.0130 |
+
+**arm-vs-arm MDE on this pool: 0.0474. Every difference is below it.**
+
+### 30.1 P2, scored
+
+P2 predicted *compute-matched best-of-k ≥ search*. **Against the oracle selector, yes**
+(+0.0232) — the direction arXiv:2607.12227 reports (72.3 vs 67.4). **Against the
+realizable validator selector, no** (−0.0130). Both are inside the noise, so the honest
+verdict is **no detectable difference between evolving the harness and simply sampling it
+four times at matched compute.**
+
+That is worth stating precisely because the oracle number is an upper bound nobody can
+deploy — it picks the best of four *after* seeing the scores. The **selection gap**
+between the two selectors (0.7686 − 0.7324 = **0.0362**) is the price of not being
+omniscient, and it is comparable in size to the entire effect anyone is arguing about.
+
+### 30.2 F8, third occurrence — and it was deflating the baseline
+
+The first run of this arm reported `seed_control 0.6885`, with
+`ExampleMandel 0.1707 = mean(0.3414, 0.0000)`. **The 0.0000 is a `harness_error`** — an
+OpenRouter timeout — being averaged into the *baseline*.
+
+`Search._evaluate` and `report_geos` both exclude harness errors; `BaselineResult.arm()`
+did not. Fixed: harness errors are dropped per cell, and a cell with no usable draw is
+dropped entirely, because a best-of-k cell that never got k draws did not run.
+
+```
+seed_control  0.6885  ->  0.8262   (all-cell mean)
+              ExampleMandel  0.1707 -> 0.3414
+```
+
+**Direction matters.** This defect deflated the *compute-matched baseline*, which biases
+the comparison **in favour of the search** — the direction this campaign is pre-registered
+against being flattered in. Third occurrence of one root cause in three different code
+paths (selection, reporting, baselines), each found by reading a number that looked wrong.
+
+### 30.3 An unrelated repo change, noted
+
+`tests/test_docs_consistency.py` began failing on `README does not link:
+['EXPERIMENT_PLAN.md']`. Not from this session: `docs/EXPERIMENT_PLAN.md` arrived in commit
+`6abbec6` ("Add the session Q&A log and a consolidated experiment plan") at 19:27, from
+another actor working in the same repo. Added the one-line README index entry so the suite
+is green at the freeze. Recorded because a concurrent writer in the same working tree is
+worth knowing about.
+
+```
+606 passed, 2 skipped
+```

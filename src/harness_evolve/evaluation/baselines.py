@@ -510,9 +510,22 @@ class BaselineResult:
         chosen = selector or self.selector
         per_task: dict[TaskId, list[float]] = {}
         for cell in self.cells:
-            per_task.setdefault(cell.task, []).append(
-                chosen(cell.rollouts).score.value
-            )
+            # F8, third occurrence. A harness error carries a placeholder 0.0
+            # and is not evidence about the arm -- it is a held run lock, a
+            # launcher exiting 0 with a failed task, or a provider timeout.
+            # `Search._evaluate` and `report_geos` both exclude these; this path
+            # did not, so a single OpenRouter timeout on the seed's own
+            # ExampleMandel cell reported the *baseline* at 0.1707 instead of
+            # 0.3414. That deflates the compute-matched arm, which biases the
+            # comparison **in favour of the search** -- the one direction this
+            # campaign is pre-registered against being flattered in.
+            usable = [r for r in cell.rollouts
+                      if r.score.status != "harness_error"]
+            if not usable:
+                # Every draw in the cell was infrastructure. Dropping the cell
+                # is right: a best-of-k arm that never got k draws did not run.
+                continue
+            per_task.setdefault(cell.task, []).append(chosen(usable).score.value)
         return ArmScores(
             label=label or self.arm_label,
             per_task={t: tuple(v) for t, v in per_task.items()},
