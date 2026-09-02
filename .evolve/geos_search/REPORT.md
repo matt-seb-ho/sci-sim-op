@@ -94,27 +94,72 @@ uv run python scripts/report_geos.py  --out $OUT --model z-ai/glm-5.3-flash   # 
 
 ---
 
-## 3. What it cost
+## 3. What it cost — and the largest cost driver was the agent verifying itself
 
-| reading (UTC) | key `usage` | spent this campaign |
-|---|---|---|
-| 10:12 baseline of record | $1.2711 | — |
-| 10:42 baseline launch | $1.2837 | $0.0127 |
-| 12:20 baseline end | $2.2805 | $1.0094 |
-| 12:28 search launch | $4.7682 | $3.4971 |
-| 17:37 | $4.7758 | **$3.5047** |
+| reading (UTC) | key `usage` | spent this campaign | Δ |
+|---|---|---|---|
+| 10:12 baseline of record | $1.2711 | — | |
+| 10:42 baseline launch | $1.2837 | $0.0127 | |
+| 12:20 baseline arm ends | $2.2805 | $1.0094 | +$1.00 |
+| 12:28 search launch | $4.7682 | $3.4971 | +$2.49 |
+| 17:37 idle | $4.7758 | $3.5047 | +$0.01 |
+| 19:14 search ends, matched top-up launched | $7.8428 | $6.5718 | +$3.07 |
+| **19:25** | **$12.9780** | **$11.7070** | **+$5.14 in 11 minutes** |
 
-Ceiling **$18.7289** (the owner raised the key cap mid-run and the polled guard picked it
-up with no restart). Spend curve, one line per poll:
+Ceiling $18.7289 (the owner raised the key cap mid-run; the polled guard picked it up with
+no restart). Headroom at the freeze: **$6.58**. Full curve, one line per poll:
 `/home/matt/projects/sci-sim-op/.evolve/provider_calls.jsonl`
 
-> **Measured cost is ≈$0.194/rollout — 5× the $0.0381 in
-> `docs/2026-08-26_BUDGET_PLAN.md` §2.** That figure came from a two-task cost probe;
-> these tasks run to the 2400 s timeout with far more turns. **The programme estimate of
-> $21 for 560 rollouts should be read as ≈$109.** Money was not the binding constraint
-> tonight — wall-clock was — but the number in the funding document is wrong by 5×.
+### 3.1 FINDING — unprompted end-to-end verification was the single largest cost driver
 
----
+**Spend went from $3.50 to $11.71 in about ninety minutes, and $5.14 of that landed in
+eleven.** The cause was identified on the box, not inferred:
+
+```
+$ ps -eo pid,etime,pcpu,comm --sort=-pcpu | grep geosx
+874647  15:08  1752%  geosx     906397  09:13  1619%  geos
+908686  08:41  1428%  geosx     882735  12:36  1331%  geosx
+   ... 10 processes, several 8-15 minutes at 1000-1750% CPU
+```
+
+`PoroElastic_Mandel`, `PoroElastic_Mandel_benchmark_fim`, `triaxialDriver` — **all
+agent-initiated full solves, run to convergence.** The task prompt says *"Create an XML
+configuration."* Nothing asks for a solve. The agent even wrote itself a memory file
+recording that a 4680-element elastoplastic wellbore run took ~5 min/step instead of ~35 s
+and that one mistake cost it a 40-minute run.
+
+**Those solves bought exactly zero score.** `GeosSpec.score` compares deck structure against
+a reference deck; it never opens a solver output file. And because every agent turn resends
+the conversation, a rollout that spends fifteen minutes narrating a solve pays for that
+transcript on **every subsequent turn** — which is why the cost is superlinear in the
+behaviour rather than proportional to it.
+
+**This is a finding about agent behaviour, not an operations note.** An unprompted
+verification habit — the agent deciding that "configure the simulator" means "and check it
+really runs" — became the dominant term in the campaign's budget and in its wall-clock. It
+is also a plausible driver of the 5.3× turn-count difference against SIGA's
+`deepseek-v4-flash` arm (26.0 turns average there, 138.6 here), though **that comparison
+must not be read as one model being worse than the other**: it is confounded by these
+solves, by a shared box at up to 6× oversubscription, by a historical 900 s cap whose
+truncations were never flagged as errors (making the honest historical truncation rate 11%,
+not 0%), and by n=18.
+
+The fix is a negative constraint in the adapter, staged at
+`/home/matt/projects/sci-sim-op/.evolve/seed_next/PRIMER.md`: validate with **both**
+`xmllint` (XML well-formedness) and `geosx --validate-input` (schema and semantic validity)
+— they catch different things and both are wanted — and **never run a solve to convergence
+or for timesteps.** It is deliberately not applied to tonight's seed: the corpus is keyed
+on the seed's content hash, so changing it mid-flight would strand 39 rollouts and force
+re-buying the compute-matched baseline at ~$4.7 against $6.58 of headroom.
+
+### 3.2 Per-rollout cost, and what the funding document should say
+
+Measured **≈$0.194/rollout** across the campaign, against **$0.0381** in
+`docs/2026-08-26_BUDGET_PLAN.md` §2 — **5× low**. That figure came from a two-task cost
+probe; these tasks run to the 2400 s timeout with far more turns, and some of them ran
+solves. **The programme estimate of $21 for 560 rollouts should be read as ≈$109**, and
+with the solve constraint in place it should be re-measured rather than assumed to fall
+back.
 
 ## 4. The numbers
 
