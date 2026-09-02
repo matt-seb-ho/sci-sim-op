@@ -9,3 +9,5 @@
 {"ts": "2026-09-02T18:32:39.871358Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
 {"ts": "2026-09-02T18:33:03.237873Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
 {"ts": "2026-09-02T18:51:01.845604Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
+{"ts": "2026-09-02T18:56:38.271051Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "watcher killed; re-checking arms"}
+{"ts": "2026-09-02T18:58:01.698904Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "watcher killed again; arms re-checked"}

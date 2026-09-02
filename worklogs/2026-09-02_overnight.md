@@ -1682,3 +1682,78 @@ recompute, not a one-off repair.
 5. `scripts/report_geos.py --out ... --model z-ai/glm-5.3-flash --also-model stealth/ox-alpha`
 6. `scripts/capacity_snapshot.py --arm final`
 7. refresh and commit `REPORT.md`
+
+---
+
+## 24. F11 diagnosed exactly, and the decisive experiment unblocked (18:59)
+
+§22 reported that a champion cannot be reloaded from its own adapter and left it there.
+The cause is now exact, and it is one byte:
+
+```
+materialize():  text if text.endswith("\n") else text + "\n"
+```
+
+Of the three text components, only `memory/constraints.yaml` lacked a trailing newline, so
+only it gained one. Pair the **parent's** manifest (which round-trips) with the **child's**
+files and strip that one newline back off, and the id returns:
+
+```
+reconstructed cand_e4345ff8953c from evolve-cand_e4345ff8953c-s1-AdvancedExampleDruckerPrager
+  newline-stripped: ['memory/constraints.yaml']
+OK cid = cand_e4345ff8953c
+```
+
+`scripts/replicate_cell.py` does this by searching the 2^n trailing-newline states for the
+one that reproduces the recorded id, and **refuses to run if none does** — buying rollouts
+under a near-miss id is the silent-substitution defect (F1) wearing yet another hat.
+
+### 24.1 The `ExampleMandel` null distribution, which is why this was worth unblocking
+
+The headline rests on one cell: champion 0.8590 against seed 0.3414. The seed's own
+distribution on that task is now six draws deep, and it is **tight**:
+
+```
+seed cand_d1c0f1f0f516, ExampleMandel:
+  0.3414  0.3295  0.3296  0.3360  0.3302     <- five draws inside 0.012 of each other
+  0.1622                                     <- one low outlier
+  (0.0000 harness_error, excluded)
+  n=6  mean 0.3048  max 0.3414
+
+champion cand_e4345ff8953c, ExampleMandel:
+  0.3378   <- indistinguishable from the seed cluster
+  0.8590   <- 2.5x the seed's maximum over six draws
+```
+
+**The seed never once exceeds 0.3414.** So 0.8590 is not a draw anyone has seen this
+adapter produce on this task — but with only two champion draws, the exact rank test gives
+p = 1/8 = 0.125 for "the champion supplies the maximum of the pooled eight". Suggestive,
+not significant, and the champion's *other* draw sits squarely inside the seed cluster —
+so if the effect is real it is **bimodal**, not a shift.
+
+### 24.2 The experiment, launched 18:59
+
+Four more champion draws on `ExampleMandel`, at seeds **3, 1000, 1001, 2000** — chosen
+because the seed already has draws at exactly those seeds, so each one lands as a *paired*
+cell on the task carrying the entire result:
+
+```bash
+uv run python scripts/replicate_cell.py --cid cand_e4345ff8953c \
+  --tasks ExampleMandel --seeds 3,1000,1001,2000 --parallel 8 --timeout 2400
+```
+
+If 0.8590 replicates, the campaign has a real, mechanistically interesting finding on the
+one task where the seed is weakest. If it does not, the headline is noise and says so with
+n=6 paired cells on that task instead of n=1. **Either outcome is worth more than anything
+else this window can buy**, which is why it goes ahead of the optional ablation.
+
+Console: `/tmp/claude-1009/replicate.log`.
+
+### 24.3 Capacity at launch, recorded
+
+```
+loadavg_15m 315.13 on 128 cores  ->  2.46 per core
+```
+Up from 0.87 earlier: three of our own arms plus the other users. **Every wall-clock number
+from this window is measured under heavy contention and must not be read as model
+latency.** The rollouts themselves are unaffected in *content* — only in how long they take.
