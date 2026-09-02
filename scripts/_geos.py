@@ -48,6 +48,17 @@ MODEL = os.environ.get("HARNESS_EVOLVE_MODEL", "z-ai/glm-5.3-flash")
 #: hardlink farms rather than 20 GB of real copies.
 TMP_GEOS_PARENT = Path("/data/matt/tmp_geos")
 
+#: GEOS' own XML schema. Every element and attribute name the simulator accepts
+#: is declared here, `geosx --validate-input` prints them in its "All available
+#: tags are:" table, and `/geos_lib` is mounted read-only into every rollout. So
+#: a name that appears in this file is public API the agent can already read --
+#: vocabulary, not an answer. Used to build the hygiene gate's public-vocabulary
+#: allowlist. Overridable because the path is a shared-data location, not ours.
+GEOS_SCHEMA = Path(os.environ.get(
+    "GEOS_SCHEMA_XSD",
+    "/data/shared/geophysics_agent_data/data/GEOS/src/coreComponents/schema/schema.xsd",
+))
+
 
 def load_env(path: Path = REPO / ".env") -> None:
     if not path.exists():

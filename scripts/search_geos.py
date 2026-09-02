@@ -50,7 +50,7 @@ from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _geos import DATA, MODEL, REPO, REPO3, runner as geos_runner  # noqa: E402
+from _geos import DATA, GEOS_SCHEMA, MODEL, REPO, REPO3, runner as geos_runner  # noqa: E402
 
 REPO3_PLUGIN = REPO3 / "plugin"
 
@@ -63,10 +63,14 @@ from harness_evolve.evaluation.slices import build_slices, stats_from_rollouts  
 from harness_evolve.evidence.corpus import build_evidence  # noqa: E402
 from harness_evolve.hygiene.corpus import GroundTruthCorpus  # noqa: E402
 from harness_evolve.hygiene.gate import (  # noqa: E402
-    GateConfig, check_candidate, train_profile,
+    GateConfig, check_candidate, public_vocabulary_from, train_profile,
 )
 from harness_evolve.integration import DEFAULT_RECEIPT, check_r1  # noqa: E402
-from harness_evolve.proposers.backends import free_window_backend  # noqa: E402
+from harness_evolve.proposers.backends import campaign_backend  # noqa: E402
+from harness_evolve.spend import (  # noqa: E402
+    AUTHORIZED_USD, BASELINE_USAGE, BudgetExhausted, BudgetGuard,
+    BudgetGuardedRunner, read_account_credits, read_openrouter_usage,
+)
 from harness_evolve.proposers.llm import LLMProposer, LLMProposerConfig  # noqa: E402
 from harness_evolve.runners.parallel import ParallelRunner  # noqa: E402
 from harness_evolve.runners.recording import RecordingRunner  # noqa: E402
@@ -146,13 +150,100 @@ def lift_budgets(candidate: Candidate, factor: float = 100.0) -> Candidate:
     return replace(candidate, manifest=replace(manifest, components=components))
 
 
-def build_runner(out: Path, timeout_s: float, parallel: int) -> ParallelRunner:
+#: Measured 2026-08-26 on this model (BUDGET_PLAN Â§2). Used only to size the
+#: "can one more batch fit" check, never to *account* for spend -- the account
+#: counter does that.
+USD_PER_ROLLOUT = 0.0381
+
+
+def build_guard(out: Path, parallel: int) -> BudgetGuard:
+    """The spend ceiling, polled from the provider rather than hardcoded.
+
+    The key's $10 is a per-key cap, not the account balance ($41.68 available at
+    10:21). The owner may raise it mid-run; if `limit` jumps, the ceiling rises
+    to the full authorization and the run simply continues.
+    """
+    def announce(before, after):
+        print(f"\n  *** KEY SPENDING CAP CHANGED: {before} -> {after}. "
+              f"Ceiling recomputed; continuing. ***\n", flush=True)
+        log_decision(out, "key_cap_changed",
+                     f"OpenRouter key limit moved {before} -> {after} mid-run; "
+                     f"ceiling recomputed as min(${AUTHORIZED_USD:.2f}, "
+                     f"limit - baseline - reserve). Continuing without restart, "
+                     f"per the 2026-09-02 brief Â§2.")
+
+    return BudgetGuard(
+        baseline_usd=BASELINE_USAGE,
+        authorized_usd=AUTHORIZED_USD,
+        batch_cost_usd=USD_PER_ROLLOUT * max(1, parallel),
+        ledger_path=REPO / ".evolve" / "provider_calls.jsonl",
+        on_limit_change=announce,
+    )
+
+
+#: Cached so a 630 KB schema is parsed once per campaign rather than per stage,
+#: and so the exact allowlist a run used is on disk and auditable afterwards.
+VOCAB_CACHE = REPO / ".evolve" / "geos_public_vocabulary.json"
+
+
+def geos_public_vocabulary() -> frozenset[str]:
+    """Identifiers GEOS declares publicly, which therefore cannot be leakage.
+
+    The hygiene rule this feeds, `rare_token_overlap`, computes idf over the
+    ground-truth deck corpus, so any token appearing in few GT decks scores as
+    rare -- including a constitutive-model name used by exactly one physics type.
+    It cannot distinguish "the cheatsheet names a GEOS constitutive model"
+    (vocabulary) from "the cheatsheet names the model *this task* needs" (an
+    answer), because it never asks whether the token is public.
+
+    `ExtendedDruckerPrager` occurs 24 times in `schema.xsd`; `geosx
+    --validate-input` prints it; `/geos_lib` is mounted read-only in every
+    rollout and the RAG MCP indexes it. A cheatsheet naming it hands the agent
+    nothing it could not obtain from the tools it already has. Subtracting that
+    vocabulary is therefore not a relaxation of the gate -- it is the gate
+    finally measuring what it claims to measure. What survives the subtraction
+    (a task id, a ground-truth filename stem, a GT numeric literal) is real, and
+    those rules fire separately and still block.
+    """
+    if VOCAB_CACHE.exists():
+        cached = json.loads(VOCAB_CACHE.read_text())
+        if cached.get("source") == str(GEOS_SCHEMA):
+            return frozenset(cached["tokens"])
+    if not GEOS_SCHEMA.exists():
+        raise SystemExit(
+            f"the public-vocabulary allowlist needs {GEOS_SCHEMA}, which is not "
+            f"there. Set GEOS_SCHEMA_XSD, or pass --no-public-vocab and accept "
+            f"that the gate will block on public GEOS API names."
+        )
+    vocab = public_vocabulary_from([GEOS_SCHEMA])
+    VOCAB_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    VOCAB_CACHE.write_text(json.dumps(
+        {"source": str(GEOS_SCHEMA), "n": len(vocab), "tokens": sorted(vocab)}, indent=1))
+    return vocab
+
+
+def log_decision(out: Path, event: str, detail: str) -> None:
+    """Append to the campaign decision log. Decisions must be auditable."""
+    out.mkdir(parents=True, exist_ok=True)
+    entry = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+             "source": "search_geos", "level": "decision",
+             "event": event, "detail": detail}
+    with (out / "decisions.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+
+def build_runner(out: Path, timeout_s: float, parallel: int,
+                 guard: BudgetGuard | None = None) -> ParallelRunner:
     """Parallel outside recording: each thread checks the corpus, runs, appends.
 
     The ordering matters. Recording *outside* parallel would serialise
-    `run_many` again, since RecordingRunner does not override it.
+    `run_many` again, since RecordingRunner does not override it. And the spend
+    guard goes *inside* recording, so that replays stay free when the money runs
+    out -- which is exactly when free re-analysis is the only work left.
     """
     inner = geos_runner(out / "rollouts", timeout_s=timeout_s)
+    if guard is not None:
+        inner = BudgetGuardedRunner(inner, guard)
     # The model is part of the replay identity. Without it a resume happily
     # serves rollouts produced by a *different* inference model as though they
     # were this run's -- which is how the ox-alpha corpus nearly became the
@@ -176,6 +267,30 @@ def task_pool(n: int | None, explicit: str | None) -> list[str]:
     return tasks[:n] if n else tasks
 
 
+def require_funds(out: Path) -> None:
+    """Confirm, once, that the account balance is not the binding limit.
+
+    Two different numbers look like one: the account balance and this key's
+    spending cap live on different endpoints. If the *balance* is what runs out,
+    raising the key cap does nothing and the run should not start.
+    """
+    available, total = read_account_credits()
+    reading = read_openrouter_usage()
+    ceiling = reading.ceiling()
+    print(f"account: ${available:.2f} available of ${total:.2f} credits")
+    print(f"key:     usage ${reading.usage:.4f}, limit {reading.limit}, "
+          f"remaining ${(reading.limit_remaining or 0.0):.4f}")
+    print(f"ceiling: ${ceiling:.4f} additional spend "
+          f"(min of ${AUTHORIZED_USD:.2f} authorized and the key cap), "
+          f"~{int(ceiling / USD_PER_ROLLOUT)} rollouts\n")
+    if available < ceiling:
+        raise SystemExit(
+            f"the ACCOUNT balance (${available:.2f}) is below the ceiling "
+            f"(${ceiling:.4f}), so raising the key cap would not help. Stop and "
+            f"escalate rather than starting work that cannot finish."
+        )
+
+
 def require_gates() -> None:
     """Refuse to spend a rollout while R1 is unverified.
 
@@ -192,7 +307,8 @@ def cmd_baseline(args: argparse.Namespace) -> int:
     """Score the seed adapter, then cut the task pool into anchor/probe/held-out."""
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
-    runner = build_runner(out, args.timeout, args.parallel)
+    guard = build_guard(out, args.parallel)
+    runner = build_runner(out, args.timeout, args.parallel, guard)
     seed = Candidate.from_dir(args.candidate)
     tasks = task_pool(args.tasks, args.task_list)
     seeds = tuple(int(s) for s in args.seeds.split(","))
@@ -231,12 +347,14 @@ def cmd_baseline(args: argparse.Namespace) -> int:
          "harness_errors": len(infra)}, indent=2))
     print(f"\nslices -> {out / 'slices.json'}")
     print(runner.inner.summary())
+    print(guard.render())
     return 0
 
 
 def cmd_search(args: argparse.Namespace) -> int:
     out = args.out
-    runner = build_runner(out, args.timeout, args.parallel)
+    guard = build_guard(out, args.parallel)
+    runner = build_runner(out, args.timeout, args.parallel, guard)
     seed = Candidate.from_dir(args.candidate)
     plan = json.loads((out / "slices.json").read_text())
 
@@ -259,7 +377,10 @@ def cmd_search(args: argparse.Namespace) -> int:
     # what is truly cheating -- lookup tables, verbatim deck content, GT numerics
     # -- and demotes the statistical rules to warnings. The quarantined v4
     # adapter still blocks under it; there is a test.
-    gate_config = train_profile() if args.hygiene_profile == "train" else GateConfig()
+    vocab = geos_public_vocabulary() if args.public_vocab else frozenset()
+    gate_config = (train_profile(public_vocabulary=vocab)
+                   if args.hygiene_profile == "train"
+                   else GateConfig(public_vocabulary=vocab))
     seed_report = check_candidate(seed, corpus, config=gate_config)
     print(f"hygiene: profile={args.hygiene_profile} scope={args.hygiene_scope} "
           f"({len(scope_tasks) if scope_tasks else 'all'} tasks); "
@@ -352,19 +473,23 @@ def cmd_search(args: argparse.Namespace) -> int:
             "usd": ledger.total("search").cost.usd,
         },
         "proposer_stats": getattr(proposer.backend, "stats", lambda: {})(),
+        "budget": guard.summary(),
+        "model": MODEL,
     }, indent=2, default=str))
     if result.best is not None:
         result.best.candidate.materialize(
             out / "best", scaffolding_from=REPO3_PLUGIN, overwrite=True)
     print(f"\nartifacts -> {out}")
     print(runner.inner.summary())
+    print(guard.render())
     return 0
 
 
 def cmd_baselines(args: argparse.Namespace) -> int:
     """Compute-matched controls. k comes from what the search actually spent."""
     out = args.out
-    runner = build_runner(out, args.timeout, args.parallel)
+    guard = build_guard(out, args.parallel)
+    runner = build_runner(out, args.timeout, args.parallel, guard)
     seed = Candidate.from_dir(args.candidate)
     plan = json.loads((out / "slices.json").read_text())
     spent = args.search_rollouts
@@ -385,9 +510,11 @@ def cmd_baselines(args: argparse.Namespace) -> int:
         print(f"  {name:<24} mean {res.mean:.4f}")
     (out / "baselines.json").write_text(json.dumps(
         {"plan": budget_plan.note,
-         "results": {k: {"mean": v.mean, "label": v.arm_label} for k, v in results.items()}},
+         "results": {k: {"mean": v.mean, "label": v.arm_label} for k, v in results.items()},
+         "budget": guard.summary()},
         indent=2, default=str))
     print(runner.inner.summary())
+    print(guard.render())
     return 0
 
 
@@ -418,6 +545,13 @@ def main() -> int:
                     help="`train` blocks only true cheating and relies on the "
                          "held-out split to reveal overfitting; `strict` also "
                          "blocks the statistical/vocabulary rules")
+    ap.add_argument("--no-public-vocab", dest="public_vocab", action="store_false",
+                    help="do NOT subtract GEOS' public schema vocabulary before "
+                         "scoring rare-token overlap. The default subtracts it: "
+                         "a name GEOS declares in schema.xsd and prints from "
+                         "--validate-input is API the agent already reads, so it "
+                         "cannot be leakage. Turn this off to reproduce the "
+                         "2026-08-26 false positive.")
     ap.add_argument("--hygiene-scope", choices=("pool", "all"), default="all",
                     help="score contamination against the tasks under "
                          "evaluation (pool) or the whole ground-truth set (all)")
@@ -427,6 +561,7 @@ def main() -> int:
     args = ap.parse_args()
 
     require_gates()
+    require_funds(args.out)
     return {"baseline": cmd_baseline, "search": cmd_search,
             "baselines": cmd_baselines}[args.stage](args)
 

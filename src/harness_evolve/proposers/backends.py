@@ -83,6 +83,15 @@ class BilledCallError(ProposerError):
     """
 
 
+class BudgetCapExceeded(ProposerError):
+    """Cumulative proposer spend passed the ledger's cap.
+
+    Distinct from :class:`BilledCallError`: that one says "this route was meant
+    to be free and is not", which is a routing fault. This one says "the money
+    ran out", which is not, and which no failover can fix.
+    """
+
+
 class RouteExhausted(ProposerError):
     """Every route in the roster is disabled or refused the call."""
 
@@ -247,18 +256,33 @@ class AdaptiveLimiter:
 
 @dataclass
 class CostLedger:
-    """What the provider says it charged, per call, with a hard stop at non-zero.
+    """What the provider says it charged, per call, under a cumulative cap.
 
-    The campaign's budget policy is one rule: never call a model whose
-    ``usage.cost`` comes back non-zero. This enforces it rather than reporting it.
+    **The policy changed on 2026-09-02.** It used to be "never call a model whose
+    ``usage.cost`` comes back non-zero", which was right for the free-window
+    campaign and aborts on the first call against a paid model. It is now
+    "cumulative cost must stay under ``cap_usd``". ``require_zero_cost`` on a
+    route still works and is still enforced -- it is simply no longer the only
+    available policy.
+
+    **This ledger sees proposer calls only.** Rollout spend happens inside the
+    container, through the agent's own credentials, in calls this process never
+    makes. Treating ``total_cost`` here as the campaign's spend would understate
+    it by roughly two orders of magnitude, so the real enforcement lives in
+    :mod:`harness_evolve.budget`, against the provider account. The cap here is a
+    second, independent line of defence on the one component of spend this
+    process can actually see.
 
     ``None`` is not zero. Venice returns no cost field at all, and absence is
     evidence about the response schema, not about the price -- so unknown-cost
-    calls are counted separately and left to the roster's ``require_zero_cost``
-    setting rather than being quietly treated as free.
+    calls are counted separately rather than being quietly treated as free.
     """
 
     path: Path | None = None
+    #: Cumulative proposer spend at which to refuse further calls. ``None``
+    #: disables the cap (the default: the account-level guard is the primary
+    #: control, and two caps that disagree is worse than one that binds).
+    cap_usd: float | None = None
     calls: int = field(default=0, init=False)
     unknown_cost_calls: int = field(default=0, init=False)
     total_cost: float = field(default=0.0, init=False)
@@ -267,6 +291,7 @@ class CostLedger:
 
     def record(self, route: str, model: str, usage: dict | None) -> float | None:
         cost = (usage or {}).get("cost")
+        over_cap = False
         with self._lock:
             self.calls += 1
             if cost is None:
@@ -274,7 +299,9 @@ class CostLedger:
             else:
                 self.total_cost += float(cost)
                 if float(cost) != 0.0:
-                    self.billed[route] = float(cost)
+                    self.billed[route] = self.billed.get(route, 0.0) + float(cost)
+            if self.cap_usd is not None and self.total_cost > self.cap_usd:
+                over_cap = True
             if self.path is not None:
                 entry = {
                     "ts": int(time.time()), "route": route, "model": model,
@@ -286,6 +313,11 @@ class CostLedger:
                         fh.write(json.dumps(entry) + "\n")
                 except OSError:
                     pass
+        if over_cap:
+            raise BudgetCapExceeded(
+                f"cumulative proposer spend ${self.total_cost:.6f} exceeds the "
+                f"cap ${self.cap_usd:.6f} after {self.calls} call(s)"
+            )
         return None if cost is None else float(cost)
 
 
@@ -336,7 +368,9 @@ class Route:
         }
 
 
-def free_roster(models: Sequence[str] = (OX_ALPHA,)) -> list[Route]:
+def free_roster(
+    models: Sequence[str] = (OX_ALPHA,), *, require_zero_cost: bool = True
+) -> list[Route]:
     """The routes the free-window campaign may use, in preference order.
 
     OpenRouter first: it load-balances across upstreams by itself and is the
@@ -353,12 +387,14 @@ def free_roster(models: Sequence[str] = (OX_ALPHA,)) -> list[Route]:
                 name=f"openrouter/{model}", model=model,
                 api_url="https://openrouter.ai/api/v1/chat/completions",
                 api_key_env="OPENROUTER_API_KEY",
+                require_zero_cost=require_zero_cost,
             ))
         if os.environ.get("NOUS_API_KEY"):
             routes.append(Route(
                 name=f"nous/{model}", model=model,
                 api_url="https://inference-api.nousresearch.com/v1/chat/completions",
                 api_key_env="NOUS_API_KEY",
+                require_zero_cost=require_zero_cost,
             ))
     return routes
 
@@ -716,7 +752,13 @@ def free_window_backend(
     ledger_path: Path | None = None,
     **kw: Any,
 ) -> RoutedBackend:
-    """The campaign backend: the free roster, with billing as a hard stop."""
+    """The free-window backend: the free roster, with billing as a hard stop.
+
+    Kept for the free-window campaign and its tests. The paid campaign uses
+    :func:`campaign_backend`; calling this one with a paid model disables every
+    route on its first response, which is the correct behaviour for the policy
+    it implements and the wrong policy for a paid run.
+    """
     routes = free_roster(models)
     if not routes:
         raise ProposerError(
@@ -724,3 +766,31 @@ def free_window_backend(
             "and/or NOUS_API_KEY"
         )
     return RoutedBackend(routes=routes, ledger=CostLedger(path=ledger_path), **kw)
+
+
+def campaign_backend(
+    models: Sequence[str],
+    *,
+    ledger_path: Path | None = None,
+    cap_usd: float | None = None,
+    **kw: Any,
+) -> RoutedBackend:
+    """The paid campaign backend: named models, spend capped rather than banned.
+
+    ``models`` has no default on purpose. ``free_window_backend()`` defaulted to
+    ``stealth/ox-alpha``, whose free period ended on 2026-08-26; the default
+    outlived the model, and a proposer pointed at a dead slug fails every call,
+    proposes nothing, and returns the seed -- which is indistinguishable from
+    the pre-registered null this campaign exists to test for. A backend that
+    must be told which model it is running is a backend that cannot go stale.
+    """
+    if not models:
+        raise ProposerError("campaign_backend requires at least one model")
+    routes = free_roster(models, require_zero_cost=False)
+    if not routes:
+        raise ProposerError(
+            "no route is configured: set OPENROUTER_API_KEY and/or NOUS_API_KEY"
+        )
+    return RoutedBackend(
+        routes=routes, ledger=CostLedger(path=ledger_path, cap_usd=cap_usd), **kw
+    )
