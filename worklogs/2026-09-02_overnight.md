@@ -1920,3 +1920,68 @@ route, because it removes the *reason* for the turns rather than truncating them
    outranks it.
 3. `--stage baselines` will **replay** the draws rather than buy them, so priority 3 costs
    ≈$0 once the top-up lands.
+
+---
+
+## 27. EXTERNAL INTERVENTION — owner killed 14 full GEOS solves (2026-09-02 19:30 UTC / 12:30 PT)
+
+**Not a harness defect, not a model failure, not an infrastructure bug.** Recorded here so
+the trace stays honest and so nobody later diagnoses it as one of the three.
+
+**Who and what:** the owner, implementing the validation-only directive (D8). Killed **14
+agent-initiated full GEOS solves** — Mandel / triaxialDriver run-to-convergence work.
+**Deliberately spared the 2 `geosx --validate-input` processes**: validation stays,
+solving stops. Load average at the time **789 on 128 cores, ~6× oversubscribed** on a
+machine shared with five other users.
+
+Confirmed after the intervention: `pgrep -c geosx` → the solve processes are gone and the
+surviving one was a `--validate-input` on
+`.../s2002-AdvancedExampleDruckerPrager/.../triaxialDriver_DruckerPrager.xml`. Exactly the
+intended shape.
+
+Artifact: `/home/matt/projects/sci-sim-op/.evolve/geos_search/external_intervention.json`
+
+### 27.1 The ten rollouts that were live, and how they must be read
+
+```
+evolve-cand_d1c0f1f0f516-s1002-ExampleIsothermalLeakyWell        868s
+evolve-cand_d1c0f1f0f516-s1002-ExampleMandel                     883s
+evolve-cand_d1c0f1f0f516-s1003-ExampleMandel                     870s
+evolve-cand_d1c0f1f0f516-s2002-ExampleIsothermalLeakyWell        870s
+evolve-cand_d1c0f1f0f516-s2002-ExampleMandel                     870s
+evolve-cand_d1c0f1f0f516-s2003-AdvancedExampleDruckerPrager      879s
+evolve-cand_d1c0f1f0f516-s2003-ExampleIsothermalLeakyWell        866s
+evolve-cand_e4345ff8953c-s1000-ExampleMandel                    1758s
+evolve-cand_e4345ff8953c-s2000-ExampleMandel                    1761s
+evolve-cand_e4345ff8953c-s3-ExampleMandel                       1761s
+```
+
+Seven are **compute-matched baseline draws** (k=4 top-up) and three are the **`ExampleMandel`
+replication** — i.e. the intervention landed on the two arms that matter most. Any killed
+or non-zero `geosx` exit inside these is the intervention, and **must not be scored as a
+model failure.**
+
+**CORRECTION, in place.** My first pass listed **36** rollouts by the test `exit_code is
+null`. That was wrong: it swept in stale `status.json` files from the 2026-08-26 ox-alpha
+404 storm, whose runs never wrote an exit code and have sat untouched for a week.
+Re-selected on `status.json` modified within the last 15 minutes, which gives the ten
+above. **Over-claiming which rollouts an external intervention touched would be its own
+dishonesty** — it would let any weak score in the final table be waved away as "probably
+the kill".
+
+### 27.2 Reading the affected rollouts
+
+The honest handling, and the one the freeze will apply:
+
+- A rollout that still **produces a deck** is scored normally. The kill removed a *solve*,
+  and the score never reads solver output — so a deck authored before the kill is
+  unaffected in the quantity we measure.
+- A rollout that comes back `harness_error` is already excluded from every average (F8).
+- A rollout that comes back `empty_workspace` or with a suspiciously low score **is flagged
+  against this timestamp rather than silently averaged**, because the honest statement is
+  "we cannot separate the intervention from a genuine failure here", not a number.
+
+### 27.3 Plan, endorsed and unchanged
+
+No further launches. Let the 8 remaining matched-baseline draws drain, run `--stage
+baselines` as **replay** once they land, drop the ablation. Headroom **$6.58**.

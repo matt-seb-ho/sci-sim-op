@@ -1,10 +1,10 @@
 {
-  "iteration": 19,
+  "iteration": 20,
   "total_findings": 9,
   "status": "running",
   "stale_count": 0,
-  "last_seen": "2026-09-02T19:25:12.835221Z",
-  "milestone": "SPEND ALERT; forbidding solves",
+  "last_seen": "2026-09-02T19:29:10.400267Z",
+  "milestone": "external intervention: 14 solves killed by owner; marking affected rollouts",
   "deadline_utc": "2026-09-02T21:00:00Z",
   "launch_cutoff_utc": "2026-09-02T20:00:00Z",
   "spend_usd_account": 1.283724018,
