@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
 
 from harness_evolve.runners.base import RolloutRunner, RunnerCapabilities
-from harness_evolve.runners.cached import CachedRunner, RolloutRecord
+from harness_evolve.runners.cached import ANY_MODEL, CacheKey, CachedRunner, RolloutRecord
 from harness_evolve.types import CandidateId, Rollout, TaskId
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -93,17 +93,19 @@ class RecordingRunner(RolloutRunner):
         *,
         replay: bool = True,
         strict_writes: bool = False,
+        model: str | None = None,
     ) -> None:
         self.inner = inner
         self.corpus_path = Path(corpus_path)
         self.replay = replay
         self.strict_writes = strict_writes
+        self.model = model
         self.stats = RecordingStats()
         # ParallelRunner drives this from a thread pool; the corpus is what a
         # resumed run depends on, so its writes are serialised.
         self._write_lock = threading.Lock()
         self.corpus_path.parent.mkdir(parents=True, exist_ok=True)
-        self._recorded: dict[tuple[CandidateId, TaskId, int], RolloutRecord] = {}
+        self._recorded: dict[CacheKey, RolloutRecord] = {}
         self._load_existing()
 
     # -- corpus ------------------------------------------------------------
@@ -134,6 +136,22 @@ class RecordingRunner(RolloutRunner):
                 f"resuming from {len(self._recorded)} recorded rollout(s) in "
                 f"{self.corpus_path}"
             )
+            # A resume is only a resume within one inference model. Rows under
+            # any other model are inert here -- they will not be replayed and
+            # they will be re-executed -- and that has to be visible, because
+            # the alternative (pooling them) is a silently different experiment.
+            mine = sum(1 for k in self._recorded if k[3] == self.model)
+            others = sorted(
+                {str(k[3]) for k in self._recorded if k[3] != self.model}
+            )
+            if others:
+                self.stats.notes.append(
+                    f"{mine} row(s) match model {self.model!r} and are "
+                    f"replayable; {len(self._recorded) - mine} row(s) were "
+                    f"recorded under {', '.join(others)} and will NOT be "
+                    f"replayed -- a rollout is a property of (candidate, task, "
+                    f"seed, model), not of the first three"
+                )
         if bad:
             self.stats.notes.append(
                 f"{bad} unreadable line(s) skipped -- a truncated last line is "
@@ -152,7 +170,9 @@ class RecordingRunner(RolloutRunner):
 
     def _append_locked(self, rollout: Rollout) -> bool:
         try:
-            payload = json.dumps(RolloutRecord.from_rollout(rollout).to_dict())
+            payload = json.dumps(
+                RolloutRecord.from_rollout(rollout, model=self.model).to_dict()
+            )
             with self.corpus_path.open("a", encoding="utf-8") as fh:
                 fh.write(payload + "\n")
                 fh.flush()
@@ -184,7 +204,7 @@ class RecordingRunner(RolloutRunner):
         return reasons
 
     def run(self, candidate: "Candidate", task: TaskId, seed: int = 1) -> Rollout:
-        key = (candidate.cid, task, int(seed))
+        key = (candidate.cid, task, int(seed), self.model)
         if self.replay and key in self._recorded:
             self.stats.replayed += 1
             return self._recorded[key].to_rollout()
@@ -192,7 +212,7 @@ class RecordingRunner(RolloutRunner):
         rollout = self.inner.run(candidate, task, seed)
         self.stats.executed += 1
         if self._append(rollout):
-            self._recorded[key] = RolloutRecord.from_rollout(rollout)
+            self._recorded[key] = RolloutRecord.from_rollout(rollout, model=self.model)
         return rollout
 
     # -- inspection ---------------------------------------------------------
@@ -202,13 +222,13 @@ class RecordingRunner(RolloutRunner):
         The handoff to offline analysis: hand this to the protocol and re-run
         every statistic for free.
         """
-        return CachedRunner(records=list(self._recorded.values()))
+        return CachedRunner(records=list(self._recorded.values()), model=self.model)
 
     def coverage(
         self, candidate_id: CandidateId, tasks: Sequence[TaskId], seeds: Sequence[int]
     ) -> tuple[int, int]:
         """``(recorded, requested)`` for one candidate over a task x seed grid."""
-        want = [(candidate_id, t, int(s)) for t in tasks for s in seeds]
+        want = [(candidate_id, t, int(s), self.model) for t in tasks for s in seeds]
         return sum(1 for k in want if k in self._recorded), len(want)
 
     def __len__(self) -> int:

@@ -426,8 +426,8 @@ def test_cached_runner_round_trips_through_a_corpus_file(tmp_path: Path) -> None
     assert runner.preflight() == []
     assert runner.run(cand, "t2", 2).score.value == 0.7
     assert runner.missing(cand.cid, ["t1", "t2", "t3"], [1, 2]) == [
-        (cand.cid, "t3", 1),
-        (cand.cid, "t3", 2),
+        (cand.cid, "t3", 1, None),
+        (cand.cid, "t3", 2, None),
     ]
 
 

@@ -50,7 +50,7 @@ from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _geos import DATA, REPO, REPO3, runner as geos_runner  # noqa: E402
+from _geos import DATA, MODEL, REPO, REPO3, runner as geos_runner  # noqa: E402
 
 REPO3_PLUGIN = REPO3 / "plugin"
 
@@ -153,7 +153,13 @@ def build_runner(out: Path, timeout_s: float, parallel: int) -> ParallelRunner:
     `run_many` again, since RecordingRunner does not override it.
     """
     inner = geos_runner(out / "rollouts", timeout_s=timeout_s)
-    recording = RecordingRunner(inner, out / "rollouts.jsonl")
+    # The model is part of the replay identity. Without it a resume happily
+    # serves rollouts produced by a *different* inference model as though they
+    # were this run's -- which is how the ox-alpha corpus nearly became the
+    # glm-5.3-flash baseline on 2026-09-02. See worklog F1.
+    recording = RecordingRunner(inner, out / "rollouts.jsonl", model=MODEL)
+    for note in recording.stats.notes:
+        print(f"  corpus: {note}", flush=True)
 
     def progress(rollout):
         flag = "" if rollout.score.status != "harness_error" else "  [HARNESS ERROR]"

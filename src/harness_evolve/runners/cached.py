@@ -34,8 +34,42 @@ from harness_evolve.types import CandidateId, Cost, Rollout, Score, TaskId
 if TYPE_CHECKING:  # pragma: no cover
     from harness_evolve.core.candidate import Candidate
 
-#: Corpus key: content hash of the candidate, task id, seed.
-CacheKey = tuple[CandidateId, TaskId, int]
+#: Corpus key: content hash of the candidate, task id, seed, inference model.
+#:
+#: The model is part of the key because it is part of the experiment. A rollout
+#: is produced by *a candidate driven by a model*; replaying a rollout recorded
+#: on one model as though it were a rollout on another silently substitutes the
+#: independent variable, and the result looks entirely normal. That is exactly
+#: the failure class this project keeps finding (see the 2026-09-02 worklog, F1)
+#: and it is not detectable downstream, because a replayed rollout is
+#: indistinguishable from a fresh one once it is in the corpus.
+CacheKey = tuple[CandidateId, TaskId, int, str | None]
+
+
+class _AnyModel:
+    """Sentinel: match a corpus record whatever model produced it.
+
+    For offline re-analysis of a single-model corpus, where demanding the model
+    name would be ceremony. It is deliberately *not* the behaviour a search
+    gets: an ambiguous lookup raises rather than picking one.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "ANY_MODEL"
+
+
+#: Match any model. See :class:`_AnyModel`.
+ANY_MODEL = _AnyModel()
+
+
+class AmbiguousReplay(LookupError):
+    """The corpus holds the same (candidate, task, seed) under several models.
+
+    Only reachable under :data:`ANY_MODEL`. Picking one would be choosing an
+    experimental condition by accident, so this raises and names them.
+    """
 
 
 class CacheMiss(KeyError):
@@ -78,9 +112,13 @@ class RolloutRecord:
     events_path: str | None = None
     validator_events: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    #: The inference model that drove the agent. ``None`` means a corpus
+    #: written before this field existed, whose model is therefore unknown --
+    #: which is not the same as "matches whatever you are running now".
+    model: str | None = None
 
     @classmethod
-    def from_rollout(cls, rollout: Rollout) -> "RolloutRecord":
+    def from_rollout(cls, rollout: Rollout, *, model: str | None = None) -> "RolloutRecord":
         return cls(
             task=rollout.task,
             candidate_id=rollout.candidate_id,
@@ -91,6 +129,7 @@ class RolloutRecord:
             events_path=rollout.events_path,
             validator_events=list(rollout.validator_events),
             error=rollout.error,
+            model=model,
         )
 
     @classmethod
@@ -116,6 +155,7 @@ class RolloutRecord:
             events_path=data.get("events_path"),
             validator_events=list(data.get("validator_events") or []),
             error=data.get("error"),
+            model=(str(data["model"]) if data.get("model") else None),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,11 +169,12 @@ class RolloutRecord:
             "events_path": self.events_path,
             "validator_events": list(self.validator_events),
             "error": self.error,
+            "model": self.model,
         }
 
     @property
     def key(self) -> CacheKey:
-        return (self.candidate_id, self.task, self.seed)
+        return (self.candidate_id, self.task, self.seed, self.model)
 
     def to_rollout(self) -> Rollout:
         raw = dict(self.score)
@@ -163,6 +204,7 @@ class CachedRunner(RolloutRunner):
         corpus_dir: Path | None = None,
         *,
         records: Iterable[RolloutRecord] = (),
+        model: str | None | _AnyModel = ANY_MODEL,
     ) -> None:
         """
         Args:
@@ -171,8 +213,15 @@ class CachedRunner(RolloutRunner):
                 so a malformed corpus fails at construction rather than in the
                 middle of a search.
             records: in-memory records, merged over anything loaded from disk.
+            model: the inference model this replay session is standing in for.
+                A concrete name replays *only* rollouts recorded under that
+                name. :data:`ANY_MODEL` (the default, for offline re-analysis of
+                a single-model corpus) replays regardless, but raises
+                :class:`AmbiguousReplay` if the corpus holds more than one model
+                for the same cell rather than choosing between them.
         """
         self.corpus_dir = Path(corpus_dir) if corpus_dir is not None else None
+        self.model = model
         self._records: dict[CacheKey, RolloutRecord] = {}
         if self.corpus_dir is not None and self.corpus_dir.is_dir():
             for rec in _load_corpus_dir(self.corpus_dir):
@@ -187,13 +236,18 @@ class CachedRunner(RolloutRunner):
         return cls(records=[RolloutRecord.from_rollout(r) for r in rollouts])
 
     @staticmethod
-    def write_corpus(path: Path, rollouts: Iterable[Rollout]) -> Path:
+    def write_corpus(
+        path: Path, rollouts: Iterable[Rollout], *, model: str | None = None
+    ) -> Path:
         """Append rollouts to a ``.jsonl`` corpus file, creating it if needed."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
             for r in rollouts:
-                fh.write(json.dumps(RolloutRecord.from_rollout(r).to_dict()) + "\n")
+                fh.write(
+                    json.dumps(RolloutRecord.from_rollout(r, model=model).to_dict())
+                    + "\n"
+                )
         return path
 
     # -- capabilities and readiness --------------------------------------
@@ -219,23 +273,51 @@ class CachedRunner(RolloutRunner):
         return reasons
 
     # -- the runner contract ---------------------------------------------
+    # -- model-aware lookup ------------------------------------------------
+    def _lookup(
+        self, candidate_id: CandidateId, task: TaskId, seed: int
+    ) -> RolloutRecord | None:
+        """The record for this cell under this runner's model, or ``None``."""
+        if not isinstance(self.model, _AnyModel):
+            return self._records.get((candidate_id, task, int(seed), self.model))
+        hits = [
+            rec
+            for (cid, t, s, _m), rec in self._records.items()
+            if cid == candidate_id and t == task and s == int(seed)
+        ]
+        if len(hits) > 1:
+            models = sorted({str(r.model) for r in hits})
+            raise AmbiguousReplay(
+                f"{candidate_id}/{task}/seed {seed} is recorded under "
+                f"{len(hits)} models ({', '.join(models)}); pass model=... to "
+                f"say which experiment you are replaying. Pooling rollouts "
+                f"across inference models is not a resume, it is a different "
+                f"experiment."
+            )
+        return hits[0] if hits else None
+
+    # -- the runner contract ---------------------------------------------
     def run(self, candidate: "Candidate", task: TaskId, seed: int = 1) -> Rollout:
         """Replay the recorded rollout, or raise :class:`CacheMiss`."""
-        key = (candidate.cid, task, int(seed))
-        rec = self._records.get(key)
+        key = (candidate.cid, task, int(seed), None if isinstance(self.model, _AnyModel) else self.model)
+        rec = self._lookup(candidate.cid, task, int(seed))
         if rec is None:
             raise CacheMiss(key, self._miss_message(key))
         return rec.to_rollout()
 
     # -- coverage, so callers can check before they commit ---------------
     def has(self, candidate_id: CandidateId, task: TaskId, seed: int) -> bool:
-        return (candidate_id, task, int(seed)) in self._records
+        return self._lookup(candidate_id, task, int(seed)) is not None
 
     def keys(self) -> list[CacheKey]:
-        return sorted(self._records)
+        return sorted(self._records, key=lambda k: (k[0], k[1], k[2], k[3] or ""))
 
     def candidate_ids(self) -> list[CandidateId]:
-        return sorted({cid for cid, _, _ in self._records})
+        return sorted({cid for cid, _, _, _ in self._records})
+
+    def models(self) -> list[str | None]:
+        """Every inference model represented in the corpus."""
+        return sorted({m for _, _, _, m in self._records}, key=lambda m: m or "")
 
     def missing(
         self,
@@ -249,8 +331,9 @@ class CachedRunner(RolloutRunner):
         an incomplete corpus while it is planning, not one rollout into a
         paired comparison whose pairing is now broken.
         """
+        want_model = None if isinstance(self.model, _AnyModel) else self.model
         return [
-            (candidate_id, t, int(s))
+            (candidate_id, t, int(s), want_model)
             for s in seeds
             for t in tasks
             if not self.has(candidate_id, t, s)
@@ -266,9 +349,9 @@ class CachedRunner(RolloutRunner):
         Almost every real miss is a task-name or seed mismatch, so the message
         enumerates what the corpus does hold for that candidate.
         """
-        cid, task, seed = key
+        cid, task, seed, model = key
         for_cid = sorted(
-            (t, s) for c, t, s in self._records if c == cid
+            (t, s) for c, t, s, _m in self._records if c == cid
         )
         if not for_cid:
             known = self.candidate_ids()

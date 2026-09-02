@@ -31,11 +31,15 @@ DATA = REPO3 / "data" / "eval"
 #: Stealth Ox Alpha testing period"; Nous: "This model free period has ended".
 #: Both 404. It was ZAI's GLM-5.3 behind the stealth badge.
 #:
-#: `z-ai/glm-5.2:free` is the replacement: Artificial Analysis intelligence index
-#: 51 (the highest of anything screened, and above the deepseek-v4-flash-0420 bar
-#: of 42), 256k context, verified `usage.cost == 0`, and ~14 s latency versus
-#: ox-alpha's ~50 s.
-MODEL = os.environ.get("HARNESS_EVOLVE_MODEL", "z-ai/glm-5.2:free")
+#: `z-ai/glm-5.2:free` was the same-day replacement, but the free-models-only
+#: policy it served is itself superseded (2026-09-02 kickoff §2): the campaign is
+#: now deliberately paid. The default is therefore the model the budget plan
+#: costed and recommended -- `z-ai/glm-5.3-flash`, measured $0.0381/rollout,
+#: 12.6 min, scores indistinguishable from `gpt-5.6-luna` at a seventh the price.
+#: A stale free slug as the default is a trap: it 404s, every rollout returns
+#: `harness_error`, and the run looks like an infrastructure outage rather than a
+#: misconfiguration.
+MODEL = os.environ.get("HARNESS_EVOLVE_MODEL", "z-ai/glm-5.3-flash")
 
 #: repo3's default (`runner/constants.py:TEMP_GEOS_PARENT`) is owned by another
 #: user and is not writable by us: the harness fails every task with

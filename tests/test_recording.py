@@ -242,3 +242,90 @@ def test_coverage_answers_what_is_left(tmp_path):
     r.run(c, "t0", 1)
     r.run(c, "t0", 2)
     assert r.coverage(c.cid, TASKS, [1, 2]) == (2, 6)
+
+
+# --------------------------------------------------------------------------
+# The inference model is part of a rollout's identity.
+#
+# Found 2026-09-02 (worklog F1): the corpus carried 18 rollouts produced by
+# `stealth/ox-alpha`, whose free window closed, and the replay key was
+# (candidate, task, seed). A campaign on `z-ai/glm-5.3-flash` would therefore
+# have replayed every one of them, reported them as glm-5.3-flash results, and
+# looked completely normal doing it -- the seed baseline the whole search is
+# measured against would have been another model's numbers. That is this
+# project's characteristic defect (a plausible number, not a crash), so the
+# behaviour is pinned in four directions rather than argued about.
+# --------------------------------------------------------------------------
+
+
+def test_a_rollout_recorded_on_another_model_is_not_replayed(tmp_path):
+    corpus = tmp_path / "rollouts.jsonl"
+    c = make_candidate()
+
+    old = RecordingRunner(CountingRunner(0.9), corpus, model="stealth/ox-alpha")
+    old.run(c, "t0", 1)
+    assert old.stats.executed == 1
+
+    inner = CountingRunner(0.2)
+    new = RecordingRunner(inner, corpus, model="z-ai/glm-5.3-flash")
+    rollout = new.run(c, "t0", 1)
+
+    assert new.stats.replayed == 0, "an ox-alpha rollout was replayed as glm"
+    assert new.stats.executed == 1
+    assert rollout.score.value == 0.2
+    assert len(inner.calls) == 1
+
+
+def test_a_rollout_recorded_on_the_same_model_is_still_replayed(tmp_path):
+    # The resume must keep working -- the fix is a narrowing, not a disabling.
+    corpus = tmp_path / "rollouts.jsonl"
+    c = make_candidate()
+    RecordingRunner(CountingRunner(0.9), corpus, model="z-ai/glm-5.3-flash").run(c, "t0", 1)
+
+    inner = CountingRunner(0.2)
+    resumed = RecordingRunner(inner, corpus, model="z-ai/glm-5.3-flash")
+    rollout = resumed.run(c, "t0", 1)
+
+    assert resumed.stats.replayed == 1
+    assert resumed.stats.executed == 0
+    assert rollout.score.value == 0.9
+    assert inner.calls == []
+
+
+def test_the_unreplayable_rows_are_reported_not_silently_ignored(tmp_path):
+    # Silence here would be indistinguishable from the bug: the run would just
+    # cost more than expected, with no statement of why.
+    corpus = tmp_path / "rollouts.jsonl"
+    c = make_candidate()
+    old = RecordingRunner(CountingRunner(), corpus, model="stealth/ox-alpha")
+    for t in TASKS:
+        old.run(c, t, 1)
+
+    new = RecordingRunner(CountingRunner(), corpus, model="z-ai/glm-5.3-flash")
+    note = "\n".join(new.stats.notes)
+    assert "stealth/ox-alpha" in note
+    assert "will NOT be replayed" in note
+    assert new.coverage(c.cid, TASKS, [1]) == (0, 3)
+
+
+def test_a_corpus_holding_two_models_refuses_to_guess(tmp_path):
+    # Offline re-analysis defaults to ANY_MODEL for convenience on a
+    # single-model corpus. On a mixed one it must not pick a condition.
+    from harness_evolve.runners.cached import AmbiguousReplay, CachedRunner
+
+    corpus = tmp_path / "rollouts.jsonl"
+    c = make_candidate()
+    RecordingRunner(CountingRunner(0.9), corpus, model="stealth/ox-alpha").run(c, "t0", 1)
+    RecordingRunner(CountingRunner(0.2), corpus, model="z-ai/glm-5.3-flash").run(c, "t0", 1)
+
+    from harness_evolve.runners.cached import RolloutRecord
+
+    both = CachedRunner(
+        records=[
+            RolloutRecord.from_dict(json.loads(line))
+            for line in corpus.read_text().splitlines()
+        ]
+    )
+    assert both.models() == ["stealth/ox-alpha", "z-ai/glm-5.3-flash"]
+    with pytest.raises(AmbiguousReplay, match="recorded under 2 models"):
+        both.run(c, "t0", 1)
