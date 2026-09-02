@@ -1626,3 +1626,59 @@ nothing.
 re-key the entire corpus): either persist the canonical files verbatim alongside the
 manifest, or make the id authoritative from `.candidate.json` when present rather than
 recomputed from a lossy round trip.
+
+---
+
+## 23. F7 was only half-fixed — the settle window was measurably too short (18:52)
+
+Two of the banked k-draws came back `empty_workspace` 0.0000 **with the settle loop having
+run and timed out**:
+
+```
+AdvancedExampleDruckerPrager seed 1000  empty_workspace 0.0   settle_timeout_s 45.0
+                                                              settled_after_empty: None
+AdvancedExampleDruckerPrager seed 2000  empty_workspace 0.0   settle_timeout_s 45.0
+```
+
+Both directories now hold real decks, and both re-score to real successes:
+
+```
+AdvancedExampleDruckerPrager  seed 1000   empty_workspace 0.0000 -> success 0.8250  (5 files)
+AdvancedExampleDruckerPrager  seed 2000   empty_workspace 0.0000 -> success 0.8542  (6 files)
+```
+
+So the **mechanism** in §15.1 was right and the **constant** was wrong: copying a workspace
+out of a container, on a box running at 0.87 load per core, is not a sub-minute operation.
+`settle_timeout_s` raised **45 → 300**.
+
+### 23.1 Why this one mattered more than the first two
+
+These are **k-draws for the compute-matched baseline.** A fabricated zero there makes
+best-of-k look *worse*, which biases the comparison **in favour of the search** — the one
+direction this campaign is pre-registered against being flattered in. The first instance of
+F7 (§15.1) hurt the seed; this one would have flattered the champion.
+
+Two of eleven draws, both on the same task. Had these gone unnoticed, the matched arm would
+have carried a 0.0000 in place of a 0.85 and the search would have looked better than it is.
+
+### 23.2 Deliberately NOT applying the correction yet
+
+`scripts/rescore_corpus.py` rewrites `rollouts.jsonl` wholesale, and **two arms are
+appending to it right now.** Rewriting under them would race and could drop rows that
+landed between read and write — trading two fabricated zeros for an unknown number of lost
+rollouts.
+
+The rescore is free and idempotent, so it is deferred to the **final recompute** after both
+arms drain, and it is on the freeze checklist below rather than left to memory. This is the
+second time `rescore_corpus.py` has earned its keep; it should be a standing step of every
+recompute, not a one-off repair.
+
+### 23.3 Freeze checklist for 20:30 UTC
+
+1. wait for both arms to drain (do **not** rewrite the corpus while they append)
+2. `scripts/rescore_corpus.py --model z-ai/glm-5.3-flash --apply`
+3. `scripts/prune_pool.py --model z-ai/glm-5.3-flash --also-model stealth/ox-alpha`
+4. `scripts/paired_champion.py --champion <best cid>`
+5. `scripts/report_geos.py --out ... --model z-ai/glm-5.3-flash --also-model stealth/ox-alpha`
+6. `scripts/capacity_snapshot.py --arm final`
+7. refresh and commit `REPORT.md`

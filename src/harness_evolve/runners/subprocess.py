@@ -140,7 +140,13 @@ class SubprocessRunnerConfig:
     #: two of the first eighteen rollouts on 2026-09-02 scored `empty_workspace`
     #: 0.0000 while their decks were still landing, and one of them re-scored
     #: 0.8250, success, from the same directory minutes later. Zero disables it.
-    settle_timeout_s: float = 45.0
+    #:
+    #: Raised 45 -> 300 on 2026-09-02 18:52: at 45 s the window was measurably
+    #: too short. Two more rollouts scored `empty_workspace` with the settle
+    #: loop having run to its own timeout, and both re-scored to 0.8250 and
+    #: 0.8542 afterwards. Copying a workspace out of a container on a box at
+    #: 0.87 load per core is not a sub-minute operation.
+    settle_timeout_s: float = 300.0
     #: Bind-mounted volume the harness needs for GEOS data. Checked in
     #: preflight because its absence is the single most common reason a box
     #: cannot run this.

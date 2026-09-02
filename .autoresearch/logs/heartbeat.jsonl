@@ -6,3 +6,6 @@
 {"ts": "2026-09-02T18:20:32.813029Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
 {"ts": "2026-09-02T18:27:18.403220Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
 {"ts": "2026-09-02T18:29:33.595394Z", "source": "orchestrator", "level": "info", "event": "wakeup", "detail": "scheduled wakeup"}
+{"ts": "2026-09-02T18:32:39.871358Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
+{"ts": "2026-09-02T18:33:03.237873Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
+{"ts": "2026-09-02T18:51:01.845604Z", "source": "orchestrator", "level": "info", "event": "alive", "detail": "poll"}
