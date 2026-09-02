@@ -849,3 +849,96 @@ So the chain is complete and each link is measured: policy → forwarded env (R1
 hook reads it → hook imports the vendored registry from the mount → checks run → findings
 block. What remains unmeasured is only the *firing rate on real decks*, which is what the
 campaign rollouts are for, and which P3 predicts will be near zero.
+
+---
+
+## 13. **CORRECTION to P3 — a vendored check fired on a real deck, and it is not the one anybody nominated** (11:00)
+
+**level=finding.** First rollout of the campaign lands, and it falsifies my own
+pre-registered prediction. Recording it immediately, before the rest of the wave, because
+the prediction was written 8 minutes earlier and the temptation to soften it later is
+exactly what §8 of the brief exists to prevent.
+
+```
+AdvancedExampleDruckerPrager   seed 2   0.9611   success
+```
+Artifacts: `/home/matt/projects/sci-sim-op/.evolve/geos_search/rollouts/claude_code_repo3_plugin_xmllint_all/evolve-cand_d1c0f1f0f516-s2-AdvancedExampleDruckerPrager/AdvancedExampleDruckerPrager/`
+
+**P3 said:** *"the three vendored checks fire at a rate near zero on real decks;
+`required_sections` never fires on an under-generated deck."* The second clause is
+untested so far. **The first is wrong on the very first rollout.**
+
+### 13.1 What actually happened, from the hook's own event log
+
+Two stop-hook events, in order:
+
+```json
+{"timestamp": "2026-09-02T10:59:43.717Z", "decision": "block",
+ "reason_category": "vendored_check", "retries_so_far": 1,
+ "checks_unsupported": [],
+ "checks_vendored_run": ["required_sections", "constraints", "cross_section_refs"],
+ "checks_vendored_findings": [{
+   "source": "cross_section_refs", "severity": "error", "location": "<tree>:dummy",
+   "message": "materialList names 'dummy', which is not a <Constitutive> child.
+               Defined: ['DruckerPrager', 'ExtendedDruckerPrager', 'ModifiedCamClay',
+               'ViscoDruckerPrager', 'ViscoExtendedDruckerPrager', 'ViscoModifiedCamClay']"}]}
+
+{"timestamp": "2026-09-02T11:00:16.548Z", "decision": "allow",
+ "reason_category": "xml_clean", "checks_vendored_findings": []}
+```
+
+**33 seconds between them.** The agent had written `materialList="{ dummy }"` — a
+placeholder it never went back and filled in. The check named the offending value, named
+the six legal alternatives, and blocked the turn. The agent fixed it and the deck came
+back clean.
+
+**That is the closed loop working, end to end, on a real task**: static gate → structured
+feedback → agent repair → clean exit. It is the first time in this project that a
+sci-sim-op check has done that inside a container.
+
+### 13.2 Why this matters more than "a check fired"
+
+**`geosx --validate-input` did not catch it.** `geosx_validate` was in the active check
+list and ran first; the deck passed it. The hook's own feedback text says why, and it was
+written before anyone had seen this happen:
+
+> *"this catches everything resolved while GEOS loads the deck (including unknown
+> tags/attributes and most cross-references), but **NOT** a name reference a solver only
+> resolves during an actual solve step … those can still slip through."*
+
+`materialList` is exactly that: a name resolved at solve time, not at load time. So
+`cross_section_refs` is not redundant with the simulator's own validator — **it covers a
+gap in it**, and the gap is a class of defect (dangling name references) that produces a
+deck which loads fine and computes the wrong thing.
+
+### 13.3 A correction to the previous session's correction
+
+The 2026-08-26 log went back and forth on this and both of its positions were wrong in the
+same direction — both were about `required_sections`:
+
+| | claim | status |
+|---|---|---|
+| §14.5, §16.3, §17 | *vendor `checks/`, because `required_sections` detects TutorialSneddon's 221 missing elements* | falsified by that author in §21 — it is a section-*presence* check and all 11 sections are present |
+| §21 | *therefore vendoring is **not** the top follow-up; it would fix nothing measured* | **falsified here** — vendoring fixed something measured, on the first rollout |
+
+Both sessions, mine included, argued about the wrong check. §21's falsification was correct
+about `required_sections` and then **generalized from one check to the whole registry**,
+which is the step that did not hold. `cross_section_refs` was in `BUILTIN_CHECKS` the whole
+time and neither analysis examined it.
+
+**The recurring shape, now at three levels:** a plausible claim about a mechanism that
+nobody ran. R1 was a knob nothing read; §21 was a fix nobody had run; §13 here is a check
+nobody had tried. The instrument that mattered was the one not being discussed.
+
+### 13.4 What is *not* established by this
+
+- **n=1.** One rollout, one task, one seed. The firing *rate* is unknown until the arm
+  finishes; P3's quantitative claim is not yet settled either way, only its "near zero"
+  framing is in trouble.
+- **No causal claim about the score.** 0.9611 vs ox-alpha's 0.9060 mean on this task is
+  across models and across n; it is not evidence the check raised the score.
+- **`required_sections` and `constraints` still fired nothing here**, consistent with the
+  rest of P3.
+- Whether this changes anything the *search* can do is a separate question: `checks` is
+  **not in the search space** (§26 of the previous log), so this is a better constant, not
+  a better search.

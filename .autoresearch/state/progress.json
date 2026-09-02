@@ -1,10 +1,10 @@
 {
-  "iteration": 1,
-  "total_findings": 6,
+  "iteration": 2,
+  "total_findings": 9,
   "status": "running",
   "stale_count": 0,
-  "last_seen": "2026-09-02T10:43:45.534775Z",
-  "milestone": "M2 baseline running",
+  "last_seen": "2026-09-02T10:54:18.111906Z",
+  "milestone": "M2 baseline wave 1 in flight (8/18)",
   "deadline_utc": "2026-09-02T16:00:00Z",
   "launch_cutoff_utc": "2026-09-02T15:00:00Z",
   "spend_usd_account": 1.283724018
