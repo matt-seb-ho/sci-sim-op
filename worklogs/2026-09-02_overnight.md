@@ -1834,3 +1834,89 @@ not the search.
 
 Capacity at launch: **load 345.49 on 128 cores, 2.70 per core.**
 Console: `/tmp/claude-1009/topup.log`. Spend: **$6.57 of $18.73**.
+
+---
+
+## 26. DIRECTIVE — geosx for validation only; and the spend curve that proves why (19:25)
+
+**level=decision (D8).** Matt, verbatim: *use geosx for **lint checking and validation
+only**, not for running simulations proper.* Confirmed on the box at 19:25:
+
+```
+$ ps -eo pid,etime,pcpu,comm --sort=-pcpu | grep geosx
+874647  15:08  1752%  geosx        906397  09:13  1619%  geos
+908686  08:41  1428%  geosx        882735  12:36  1331%  geosx
+933426  01:45  1230%  geosx        933433  01:45  1210%  geosx
+936235  00:57  1066%  geosx        882230  12:41   481%  geosx
+   ... 10 processes, several 8-15 minutes at 1000-1750% CPU
+```
+
+`PoroElastic_Mandel`, `PoroElastic_Mandel_benchmark_fim`, `triaxialDriver` — **all
+agent-initiated**. The task prompt says *"Create an XML configuration"*. Nothing asks for a
+solve. The agent chose to verify end-to-end, and it wrote itself a memory file saying so.
+
+### 26.1 The spend curve, which is itself a finding
+
+| time (UTC) | key usage | spent | Δ |
+|---|---|---|---|
+| 10:42 | $1.2837 | $0.0127 | — |
+| 12:20 | $2.2805 | $1.0094 | +$1.00 |
+| 12:28 | $4.7682 | $3.4971 | +$2.49 |
+| 17:37 | $4.7758 | $3.5047 | +$0.01 |
+| 19:14 | $7.8428 | $6.5718 | +$3.07 |
+| **19:25** | **$12.9780** | **$11.7070** | **+$5.14 in 11 minutes** |
+
+**Spend went from $3.67 to $11.71 in about 90 minutes**, and the last $5.14 landed in
+eleven. Every turn resends the conversation, so a rollout that spends 15 minutes narrating
+a solve pays for that transcript on every subsequent turn. **Self-directed simulation runs
+roughly tripled the burn rate**, and they bought exactly zero score, because
+`GeosSpec.score` reads deck structure against a reference deck and never opens a solver
+output. That belongs in the report as a result, not as an operations note.
+
+Headroom now **$7.02**.
+
+### 26.2 Both check paths kept — they are not the same check
+
+Matt's caveat from the rebuttal process is preserved in the constraint text, because
+conflating them would be a real loss:
+
+- **`xmllint`** — XML *well-formedness*. Balanced tags, legal entities, no `--` inside a
+  comment. That last one produced the only hard zero in the August corpus. Knows nothing
+  about GEOS.
+- **`geosx --validate-input`** — *schema and semantic* validity: names GEOS accepts and
+  references it resolves at load time. Knows nothing about XML syntax it never reaches.
+
+**Forbid the solve, keep both validators.**
+
+### 26.3 Staged for the next campaign, NOT applied to tonight's seed — and why
+
+The constraint is written and ready at
+`/home/matt/projects/sci-sim-op/.evolve/seed_next/PRIMER.md` (271 tokens against a 400
+budget), producing candidate `cand_8d508e0041d5`.
+
+**It is deliberately not applied to `.evolve/seed`.** Doing so changes the seed's content
+hash from `cand_d1c0f1f0f516`, and the corpus is keyed on that hash. The consequences,
+concretely:
+
+- all **39** glm-5.3-flash rows become unreplayable;
+- the **16 banked k-draws** stop matching, and the 8 still in flight would land under an id
+  nothing else shares;
+- the **compute-matched baseline** — the arm I have been told to protect above everything —
+  would have to be re-bought from scratch at roughly **$4.7 against $7.02 of headroom**,
+  mid-flight, on a directive whose entire purpose is to *stop* burning budget.
+
+So the constraint takes effect at the **start of the next campaign**, where it costs
+nothing and where the noise floor will be re-measured under it anyway (a deck authored
+without solves is a different run, and pooling it with tonight's would be F1 in yet another
+place). This is also the turn cap by another route, as the directive notes — and a better
+route, because it removes the *reason* for the turns rather than truncating them.
+
+### 26.4 Immediate actions taken
+
+1. **No further launches.** Both in-flight arms *are* the compute-matched baseline's own
+   draws (16/24 banked, 8 in flight), so protecting the baseline means letting them drain,
+   not killing them — which is also what the directive says.
+2. **The ablation is dropped.** $7.02 does not buy an arm, and the matched baseline
+   outranks it.
+3. `--stage baselines` will **replay** the draws rather than buy them, so priority 3 costs
+   ≈$0 once the top-up lands.

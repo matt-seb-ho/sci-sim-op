@@ -1,10 +1,10 @@
 {
-  "iteration": 17,
+  "iteration": 19,
   "total_findings": 9,
   "status": "running",
   "stale_count": 0,
-  "last_seen": "2026-09-02T19:13:11.392572Z",
-  "milestone": "turn-cap diagnosis received; implementing cap + validate-only line",
+  "last_seen": "2026-09-02T19:25:12.835221Z",
+  "milestone": "SPEND ALERT; forbidding solves",
   "deadline_utc": "2026-09-02T21:00:00Z",
   "launch_cutoff_utc": "2026-09-02T20:00:00Z",
   "spend_usd_account": 1.283724018,
