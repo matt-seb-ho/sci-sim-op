@@ -13,9 +13,9 @@ Companion: [`RESEARCH_PROGRAM.md`](RESEARCH_PROGRAM.md) (what the money buys).
 
 | | value | source |
 |---|---|---|
-| **$/rollout, prose constraint** | **$0.134** | billed account delta, n=6, 2026-09-08 |
 | $/rollout, before (self-directed solves) | $0.194 | 2026-09-02 campaign accounting |
-| $/rollout, mount-enforced | *pending* | arm in flight |
+| **$/rollout, prompt instruction only** | **$0.134** | billed account delta, n=6, 2026-09-08 |
+| $/rollout, instruction **+ mount block** | **$0.213** | billed account delta, n=6 — *worse*, see §3.1 |
 | **wall-clock/rollout** | **1888 s** (median 1964) | transcript span, n=6 |
 | **turns/rollout** | **102.5** (median 75) | transcript, n=6 |
 | **tool calls/rollout** | **54.8** (median 37.5) | transcript, n=6 |
@@ -71,6 +71,37 @@ Prose constraint in the seed primer ("validate, never solve"), n=6 vs the 58-rol
    still needed**, and it is not yet implemented — `claude -p` supports `--max-turns` but
    adding it touches `docker_cmd.py`, which is byte-pinned by `tests/test_container_spec.py`.
 
+### 3.1 Blocking without telling costs more than telling without blocking
+
+The mount wrapper was expected to finish the job. It did not — it made things worse.
+Same six task/seed cells, same adapter:
+
+| metric | instruction only | instruction + mount block |
+|---|---|---|
+| turns / rollout | **102.5** | 137.7 |
+| tool calls / rollout | **54.8** | 63.5 |
+| **$ / rollout** | **$0.134** | **$0.213** |
+| non-validate `geosx` **attempts** / rollout | 2.83 | **5.67** |
+| of those, actually executed | 2.83 | **0** — all 34 refused |
+| wall-clock / rollout | 1888 s | 1724 s |
+
+**The block works: zero solves executed, 34 refusals.** But solve *attempts doubled*, and
+turns and cost rose with them. A refusal does not end the agent's line of inquiry — it
+invites another variation, and each variation is a turn.
+
+Two consequences:
+
+1. **The refusal must be terminal, not corrective.** The wrapper's message currently
+   suggests the validated alternative, which reads as "try again differently". It should
+   state that no simulation run is possible in this environment, full stop.
+2. **Enforcement is not a substitute for saying what the task is.** The scope note has been
+   moved into the **task prompt** (`siga/src/runner/prompts/__init__.py:_SCOPE_NOTE`),
+   where it is arm-invariant and authoritative, rather than the adapter — see §4.1.
+
+**n=6 per arm.** Directionally clear (cost is 59% higher, attempts double) but not a
+precise effect size. Re-measure with the prompt-level scope note before trusting the
+magnitude.
+
 ## 4. The enforcement layer
 
 `/data/matt/geosx_validate_only/` mirrors the real install by symlink, replacing
@@ -82,6 +113,21 @@ it; `GEOSX_ALLOW_SOLVE=1` restores the real tree. repo3's 66 tests stay green.
 **It is a guardrail, not a sandbox.** The real binary sits beside the wrapper as
 `.geosx-real`; an agent that goes looking can call it. Making it a true boundary requires
 mounting the real install somewhere the container cannot reach, which is a mount change.
+
+### 4.1 The scope note belongs in the task prompt, not the adapter
+
+First attempt put "validate, never solve" in the seed adapter's `PRIMER.md`. That was
+wrong on two counts, and it has been moved to `build_task_prompt()`:
+
+- **The adapter is the thing being searched.** A rule living there is a component the
+  evolution loop can edit or delete, so arms would silently differ in *what task they were
+  solving* — the confound this programme exists to eliminate.
+- **It broke comparability with SIGA.** Our seed adapter must stay byte-comparable to
+  SIGA's; a scope rule inside it makes every historical comparison an apples-to-oranges one.
+
+The task prompt is the right home: identical across every arm including vanilla-CC and
+from-scratch, not searchable, and it is where the deliverable is defined. Gated by
+`build_task_prompt(..., scope_note=False)` for reproducing pre-2026-09-08 runs.
 
 ## 5. Programme cost, at measured rates
 
