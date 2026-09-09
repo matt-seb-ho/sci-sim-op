@@ -4,10 +4,22 @@
 documentation. Reference run: `siga/runs/t1_cc_deepseek/TutorialSneddon` (2026-04-16)
 against `.evolve/p0_screen/.../AdvancedExampleCasedContactThermoElasticWellbore` (today).
 
-**Why this document exists:** our rollouts take **1888 s and ~103–162 turns**; SIGA's took
-**~500 s and ~31 turns** on **byte-identical task specifications** (`instructions.txt`,
-6998 B, the same file). The gap is not the model. It is four differences in everything
-around it, and three of them push the same way.
+**Why this document exists:** on **byte-identical task specifications** (`instructions.txt`,
+6998 B, literally the same file), like-for-like using each harness's own counters:
+
+| | SIGA `t1_cc_deepseek` (n=36) | here (n=80) | ratio |
+|---|---|---|---|
+| **tool calls / rollout** | **25.1** (median 28, max 55) | **59.7** (median 56, max 111) | **2.4×** |
+| **wall-clock / rollout** | **521 s** (max 900 = its cap) | **1453 s** (max 1792) | **2.8×** |
+
+The gap is not the model. It is four differences in everything around it, and three of them
+push the same way.
+
+> Earlier drafts of this comparison quoted 31 vs 103–162 "turns". That compared SIGA's
+> `cc_result.json:num_turns` against a count of transcript records carrying a `usage`
+> block — **two different quantities**. The table above uses `tool_count` and
+> `total_tool_calls`, which both harnesses emit and which do measure the same thing. The
+> real gap is 2.4×, not 3–5×.
 
 ---
 
@@ -126,18 +138,17 @@ like-for-like.
 It attributes the gap and it doubles as the seed-headroom test, which is the more important
 of the two questions.
 
-## 5. Correction: the turn cap is not working
+## 5. Resolved: the turn cap is fine; the metric was wrong
 
-`--max-turns 100` is passed and reaches the CLI, but the screen's post-cap rollouts still
-show **mean 162 turns, max 801**. Two candidate explanations, not yet distinguished:
+`--max-turns 100` is passed and reaches the CLI. The alarming "mean 162 turns, max 801"
+came from `measure_rollouts.py`, which counts every transcript record carrying a `usage`
+block — assistant messages, tool results and sub-steps alike. That is **not** the CLI's
+notion of a turn and **not** what SIGA's `num_turns` records.
 
-- our metric counts every transcript message carrying a `usage` block, whereas the CLI's
-  notion of a "turn" is a user↔assistant round trip — in which case the cap may be working
-  and **our turn numbers are not comparable to SIGA's `num_turns` field either**, which
-  would partly deflate the whole 31-vs-103 comparison;
-- or the flag is accepted and not enforced.
+On the harness's own counter the picture is orderly: **59.7 tool calls, max 111**, against
+SIGA's 25.1/55. Wall-clock also improved from 1888 s to **1453 s** across the scope note,
+the validation gate and the cap together.
 
-**Resolve this before quoting any turn number again.** SIGA's 31 comes from
-`cc_result.json:num_turns`; ours comes from counting transcript records. Until they are
-shown to measure the same thing, the wall-clock ratio (500 s vs 1888 s) is the more
-trustworthy statement of the gap.
+**Rule: quote `total_tool_calls` / `tool_count` and `elapsed_seconds`, never the
+transcript-derived turn count.** `measure_rollouts.py`'s `turns` field is useful for cost
+attribution and misleading for anything else; it should be renamed.
