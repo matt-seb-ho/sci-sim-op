@@ -19,8 +19,6 @@ from pathlib import Path
 import pytest
 
 from harness_evolve.spend import (
-    AUTHORIZED_USD,
-    BASELINE_USAGE,
     AccountUsage,
     BudgetExhausted,
     BudgetGuard,
@@ -30,6 +28,14 @@ from harness_evolve.core.candidate import Candidate
 from harness_evolve.core.manifest import ComponentSpec, Manifest
 from harness_evolve.runners.base import RolloutRunner
 from harness_evolve.types import Cost, Rollout, Score
+
+
+#: The production BASELINE_USAGE moves whenever the owner adds credit and is in
+#: key-usage units, so importing it here coupled these tests to live config: on
+#: 2026-09-09 a legitimate re-baseline turned 9 of them red. The guard's logic is
+#: what is under test, so the window is defined locally.
+BASELINE_USAGE = 1.271071093
+AUTHORIZED_TEST_USD = 20.00
 
 
 def usage(u: float, limit: float | None = 10.0) -> AccountUsage:
@@ -73,6 +79,10 @@ def guard(readings, **kw):
             pass
         return last["v"]
 
+    # Pin the authorization window too: BudgetGuard defaults to live config,
+    # which moves whenever the owner adds credit.
+    kw.setdefault("baseline_usd", BASELINE_USAGE)
+    kw.setdefault("authorized_usd", AUTHORIZED_TEST_USD)
     return BudgetGuard(reader=reader, min_interval_s=0.0, **kw)
 
 
@@ -85,7 +95,7 @@ def test_the_ceiling_is_the_key_cap_not_the_authorization_when_the_cap_is_lower(
     g = guard([usage(BASELINE_USAGE)])
     g.poll()
     assert g.ceiling() == pytest.approx(10.0 - BASELINE_USAGE)
-    assert g.ceiling() < AUTHORIZED_USD
+    assert g.ceiling() < AUTHORIZED_TEST_USD
 
 
 def test_raising_the_key_cap_mid_run_raises_the_ceiling_to_the_authorization():
@@ -93,7 +103,7 @@ def test_raising_the_key_cap_mid_run_raises_the_ceiling_to_the_authorization():
     g.poll()
     assert g.ceiling() == pytest.approx(8.728929, abs=1e-5)
     g.poll()
-    assert g.ceiling() == AUTHORIZED_USD
+    assert g.ceiling() == AUTHORIZED_TEST_USD
     assert not g.tripped
 
 
@@ -117,7 +127,7 @@ def test_the_ceiling_does_not_shrink_as_we_spend():
     g.poll()
     assert g.ceiling() == pytest.approx(ceiling)
     naive_halt = g.poll()
-    assert naive_halt.limit_remaining == pytest.approx(naive_halt.spent(), abs=1e-3)
+    assert naive_halt.limit_remaining == pytest.approx(naive_halt.spent(baseline=BASELINE_USAGE), abs=1e-3)
     assert not g.tripped, "halted at half the allowance -- the live-reading trap"
 
 

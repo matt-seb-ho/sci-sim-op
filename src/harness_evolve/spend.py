@@ -72,11 +72,19 @@ CREDITS_URL = "https://openrouter.ai/api/v1/credits"
 
 #: Account spend on this key when the 2026-09-02 campaign started. Every
 #: "additional spend" figure is measured from here.
-BASELINE_USAGE = 1.271071093
+#: The KEY's cumulative ``usage`` at the start of the current authorization
+#: window -- key units, not account units; the two differ by an order of
+#: magnitude here and conflating them silently disables the guard.
+#:
+#: Re-baseline (and re-authorize) whenever the owner adds credit. A stale baseline
+#: from a previous window exhausts a fresh budget: on 2026-09-09 the 2026-09-02
+#: baseline killed a probe while $21 was still available.
+#: Override with GEOS_SPEND_BASELINE / GEOS_AUTHORIZED_USD.
+BASELINE_USAGE = float(os.environ.get("GEOS_SPEND_BASELINE", "21.87"))
 
 #: What the owner authorized, in additional spend. The ceiling is the smaller of
 #: this and what the key's own cap allows.
-AUTHORIZED_USD = 20.00
+AUTHORIZED_USD = float(os.environ.get("GEOS_AUTHORIZED_USD", "21.00"))
 
 #: Zero on purpose. The key cap *is* the stop -- it is a hard provider-side wall
 #: and the owner's instruction (2026-09-02 10:36) is to poll it rather than to
