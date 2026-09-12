@@ -1,9 +1,11 @@
 # Qualification task for the prospective undergrad collaborator
 
 **Written 2026-09-12.** Answers the four open questions, with the numbers they
-turn on. The artifact is a separate repository:
-[`../../geos-harness-qual/`](../../geos-harness-qual/) — starter kit, task
-statement, seven tasks, container runner, scorer, budget guard.
+turn on. The artifact is a separate repository —
+[`matt-seb-ho/geos-harness-qual`](https://github.com/matt-seb-ho/geos-harness-qual),
+checked out at [`../../geos-harness-qual/`](../../geos-harness-qual/) — holding
+the starter kit, the task statement, seven tasks, the container runner, the
+scorer and the budget guard.
 
 Companions: [`2026-09-08_BUDGET_PLAN.md`](2026-09-08_BUDGET_PLAN.md) (unit
 costs), [`SETUP_DELTA_vs_SIGA.md`](SETUP_DELTA_vs_SIGA.md) (why the research
@@ -13,7 +15,7 @@ setup is slow), [`STATUS.md`](STATUS.md).
 
 ## 1. How many hours to ask for
 
-**15 hours of focused work, spread over ~3 weeks, with a hard stop at 18.**
+**15 hours of work, spread over ~3 weeks, with a hard stop at 18.**
 
 The task is open-ended, so the cap is not an estimate — it is part of the
 specification, and how someone behaves inside it is most of the signal. Fifteen
@@ -21,32 +23,21 @@ hours is deliberately *not enough* to do this comfortably; the student has to
 decide what to drop, and that decision is assessable in a way that a completed
 checklist is not.
 
-| | hours |
-|---|---:|
-| read the kit, run the mock loop, choose a method, write the one-pager | 4 |
-| implement the loop against the free mock runner | 6 |
-| the real runs | 3 |
-| write it up | 2 |
+**No per-step hour estimates are given.** An earlier draft budgeted each phase
+and that was a mistake: it converts an open-ended research task into a schedule,
+which both rewards the wrong behaviour (working to the estimate) and is wrong
+anyway, since where the time goes depends entirely on which method they pick.
+What `TASK.md` gives instead is a total, an ordering, and an explicit **"if you
+are running out of time, cut in this order"**: fewer candidates first, then a
+shorter note (never a skipped one), then report the train result with the test
+evaluation openly outstanding, then — if the loop never worked — hand in the
+analysis of why. That last one is acceptable and is labelled as such, because a
+student who quietly overruns rather than submit a failure is the failure mode a
+tight cap creates.
 
-Getting from 20 to 15 meant cutting scope, not relabelling it. What came out:
-
-- the report is **2–3 pages**, not 3–5;
-- they get **one real search run, not two** — debugging happens on the free mock
-  runner, which is stated as an instruction rather than left to discover;
-- the search is sized at ~6 candidates rather than ~8, which also drops expected
-  spend to ~$7.
-
-`TASK.md` now carries an explicit **"if you are running out of time, cut in this
-order"** section: fewer candidates first, then a shorter write-up (never a
-skipped one), then report the train result with the test evaluation outstanding,
-then — if the loop never worked — hand in the analysis of why. That last one is
-genuinely acceptable and is labelled as such, because an undergrad who quietly
-overruns to avoid submitting a failure is the failure mode a 15-hour cap
-creates.
-
-**The mandatory check-in at hour ~4** stays, and matters more at 15 hours than
-at 20: it is after the one-pager and before any implementation. Two reasons, and
-the second is the real one:
+**The mandatory check-in after the one-pager** stays, and matters more at 15
+hours than at 20: it is after the method justification and before any
+implementation. Two reasons, and the second is the real one:
 
 1. It stops a wrong plan from consuming the whole budget.
 2. It is the cheapest assessment point we have. If the one-pager cannot say what
@@ -54,6 +45,14 @@ the second is the real one:
    training rollouts, a structural score and a 12-minute rollout, the rest of the
    work will not recover that — and we both learn it in week one rather than
    week three.
+
+**The write-up is deliberately de-emphasised.** It is about a page, bullet
+points are fine, and the assessment ordering in `TASK.md` puts it fifth of six —
+below judgement about what to measure, honesty of the numbers, the reasoning in
+the one-pager, and code quality. The artifacts that matter are produced by the
+kit anyway: the ledger, the decision log, the champion configuration. The note
+exists to say which direction they were optimising and what they believe, not to
+be a paper.
 
 Three weeks of elapsed time for 15 hours of work is deliberate. A batch of eight
 rollouts is ~35 minutes at three-way parallelism, so the work is inherently
@@ -141,15 +140,91 @@ shipped as a prior and labelled as one. (Sanity check: the smoke rollout scored
 **0.526** on `TutorialPoroelasticity` against the screen's 0.49/0.42 — same band,
 slightly better, consistent with the curated corpus.)
 
+### The search space is the harness, not an "adapter"
+
+The first version of the kit handed the student a four-field `Adapter` (primer,
+cheatsheet, constraints, stop policy) with token budgets on each. That was
+wrong, and it is now a `HarnessConfig` covering **everything about the harness
+except the model**:
+
+| | |
+|---|---|
+| `system_prompt` | appended to the agent's system prompt |
+| `tools` / `disallowed_tools` | which tools exist, which are withheld |
+| `files` | anything, mounted read-only at `/harness` — hook scripts, MCP servers, a cheatsheet read on demand, notes the loop accumulates |
+| `workspace_files` | files in `/workspace` before the run: `CLAUDE.md`, a checklist |
+| `settings` | the harness's settings JSON. **Hooks live here** |
+| `mcp_servers` | new tools |
+| `max_turns`, `env`, `extra_argv` | context budget, environment, any CLI flag |
+| `retry` | host-side shell checks against the finished workspace, plus what the agent is told on failure |
+
+**The token budgets are gone entirely.** They were the wrong instinct: a
+configuration that wins on score while tripling cost is not obviously worse than
+one that does neither — it depends what is being optimised. So the kit measures
+what a budget was protecting instead. `EvalResult` now reports **three outcomes
+side by side** and `compare()` gives the delta on all three:
+
+```
+cfg_1ecba84903ef  score 0.7312  zero-rate 0.00  687s and 64 tool calls per rollout  n=8
+
+cfg_1ecba… vs cfg_13c3…: paired score +0.2197, 95% CI [+0.1295, +0.3019], n=4 tasks
+    reliability  zero-rate +0.000
+    efficiency   +0s and +13.0 tool calls per rollout
+```
+
+`TASK.md` asks them to name which direction they are optimising *before* they
+run, then report what actually moved. Performance, reliability and efficiency
+are all legitimate targets and the task says so.
+
+Five things remain fixed, and they are framed as validity constraints rather
+than design taste: the model; no subagent tools (a rollout nominally on one
+model once spawned a subagent on a stronger one that took 85% of the bill); no
+web tools; the task prompt; the scorer. `HarnessConfig.validate()` enforces the
+first three and raises before anything is spent.
+
+### What the container actually provides
+
+You asked specifically. Answers, all verified in the image today:
+
+| | |
+|---|---|
+| **GEOS example decks** | yes — ~743 `.xml` under `/geos_lib/inputFiles/` |
+| **GEOS documentation** | yes — ~98 `.rst` under `/geos_lib/docs/` (user guide, tutorials, basic and advanced examples) |
+| **GEOS XML schema** | yes — `/geos_lib/schema/schema.xsd` |
+| **GEOS C++ source** | no. Curated out; it is 1,539 files the agent can spend turns reading |
+| **`xmllint` binary** | yes, in the image |
+| **`xmllint` MCP wrapper** | no. The binary is there, the tool wrapper is not |
+| **RAG / vector DB** | no. The corpus is 4 MB, so `Grep`/`Glob` reach all of it |
+| **`geosx` binary** | no, deliberately — see above |
+| **ground truth** | never mounted |
+
+The load-bearing one: **schema validation works today and nothing uses it.**
+
+```
+$ xmllint --noout --schema /geos_lib/schema/schema.xsd bad.xml
+bad.xml:2: element NotARealSolver: Schemas validity error : Element
+'NotARealSolver': This element is not expected. Expected is one of (
+AcousticDG, AcousticElasticSEM, AcousticFirstOrderSEM, AcousticSEM,
+AcousticVTISEM, CompositionalMultiphaseFVM, ... )
+```
+
+That is the "correct action space at the point of failure" signal
+`evidence/directives.py` exists to mine in the research repo — free, in the
+container, and unwired. Whether the student finds it, and what they do with it
+(prompt instruction? `Stop` hook? MCP tool? retry check?), is one of the more
+informative things the exercise can surface.
+
 ### What is in the repo
 
 ```
 tasks/          7 specifications + their reference decks (never mounted)
-adapter/seed/   the 5-line primer they must beat
-src/qualkit/    tasks, adapter, agents, corpus, rollout, scoring,
-                evaluate, ledger, mock, llm, cli    (~2,000 lines)
+harness/seed/   the starting configuration: a 5-line prompt, default tools,
+                one attempt, no hooks, no extra tools
+src/qualkit/    tasks, config, agents, corpus, rollout, scoring, evaluate,
+                ledger, mock, llm, cli      (~3,500 lines, 840 of them the
+                vendored scorer)
 evolve/loop.py  THE STUB. The only file that is theirs.
-tests/          53 tests, offline, a few seconds
+tests/          60 tests, offline, a few seconds
 TASK.md         the task statement
 docs/CONTAMINATION.md
 ```
@@ -157,25 +232,27 @@ docs/CONTAMINATION.md
 Three things in it are worth more than the code:
 
 - **a free mock runner.** A deterministic offline fake agent with a learnable
-  gradient, so the entire loop is built and debugged at zero cost and in
-  seconds. It is documented as a toy — it rewards vocabulary overlap, which the
-  real task does not — and noticing that gap is itself something we can assess.
+  gradient, so the loop is built and debugged at zero cost and in seconds. It is
+  documented as a toy — it rewards vocabulary overlap and retries, and is
+  **blind to tools, hooks, MCP and turn caps**. That last point is now stated
+  loudly: a student whose method works through one of those gets nothing from
+  the mock, and noticing that is itself assessable.
 - **the evaluation rules are enforced, not suggested.** Paired per-task
   comparison with a bootstrap interval; `compare()` refuses evaluations that do
-  not cover the same cells; failures are zeros and stay in; harness errors are
-  excluded *and counted*; the budget guard prices from the account, never the
-  transcript; the ledger replays so a crash does not re-buy rollouts.
+  not cover the same cells; failures are zeros and stay in; infrastructure
+  errors are excluded *and counted*; the budget guard prices from the account,
+  never the transcript; the ledger replays so a crash does not re-buy rollouts.
 - **contamination is a mount-level property.** The corpus is built per task with
   that task's decks, their variant siblings (`_base` → `_smoke`, `_benchmark`)
-  and the doc page the spec was mined from removed, by hardlink so nothing can be
-  followed out. `qual audit` checks it.
+  and the doc page the spec was mined from removed, by hardlink so nothing can
+  be followed out. `qual audit` checks it.
 
 **One thing found while building this, worth acting on in the research repo:**
 the research harness leaves `WebSearch`/`WebFetch` enabled. Every GEOS example
 deck is on GitHub, and the container has network — so the corpus filtering is
-defeasible by an agent that thinks to fetch a URL. The starter kit disallows
-both and pins it with a test. Whether any past rollout actually did this is
-checkable from the transcripts and probably should be checked.
+defeasible by an agent that thinks to fetch a URL. The starter kit forbids both
+at the validity floor and pins it with a test. Whether any past rollout actually
+did this is checkable from the transcripts and probably should be checked.
 
 ## 3. How much API spend to authorise
 
@@ -285,13 +362,21 @@ the date you want the one-pager by.
 
 ## What is still open
 
-- **The student's key.** Create it with a $15 cap before sending the repo.
-- **Where the repo lives.** See the section below — a **private** GitHub repo,
-  and private is load-bearing.
+- **The student's key.** Create it with a $15 per-key cap before sending the repo.
+- **Repo visibility.** Pushed to `matt-seb-ho/geos-harness-qual` (branch
+  `master`). Confirm it is private — §4 says why that is load-bearing rather
+  than cautious.
 - **Only `claude` is verified end to end.** The `acpx` harnesses have correct
-  flags and a present binary but nobody has run one. The kit says so rather than
-  implying otherwise; if a student picks one, budget an hour for auth.
-- **The mock's gradient is vocabulary overlap.** It is documented as fake, but a
-  student who optimises against it and never notices will produce a loop that
-  does nothing on real rollouts. That is a deliberate trap and it is one of the
-  more informative things the exercise can detect.
+  flags and a present binary but nobody has run one. `qual harnesses` says so
+  rather than implying otherwise; if a student picks one, budget an hour for
+  auth, and note that ACP has no settings-file hook mechanism, so a
+  configuration built on hooks will silently do nothing there. `Harness.
+  unsupported(config)` reports that rather than letting it pass.
+- **The mock cannot see most of the search space.** It rewards vocabulary
+  overlap and retries; tools, hooks, MCP and turn caps are invisible to it. That
+  is documented in three places, but a student who optimises against it anyway
+  will produce a loop that does nothing on real rollouts. It is a deliberate
+  trap and one of the more informative things the exercise can detect.
+- **Nobody has measured hook-vs-retry.** The kit offers both an in-container
+  `Stop` hook and a host-side retry loop, and says plainly that we do not know
+  which is cheaper. If a student answers that, it is a result we want.
