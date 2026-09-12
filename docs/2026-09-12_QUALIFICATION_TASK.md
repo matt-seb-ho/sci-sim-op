@@ -11,6 +11,14 @@ Companions: [`2026-09-08_BUDGET_PLAN.md`](2026-09-08_BUDGET_PLAN.md) (unit
 costs), [`SETUP_DELTA_vs_SIGA.md`](SETUP_DELTA_vs_SIGA.md) (why the research
 setup is slow), [`STATUS.md`](STATUS.md).
 
+> **Read [`2026-09-12_CONTAMINATION_git-history.md`](2026-09-12_CONTAMINATION_git-history.md)
+> first if you read nothing else here.** Building this kit turned up a
+> benchmark-invalidating leak in the research harness: `/geos_lib` is a copy of a
+> git checkout, `.git` included, so every deliberately-removed deck is one
+> `git show` away. 59 of 80 screen rollouts ran git against the mount; 29 of 40
+> tasks got their own blocked deck back. It is very likely why twelve tasks
+> "scored 1.000 at both seeds".
+
 ---
 
 ## 1. How many hours to ask for
@@ -313,55 +321,80 @@ Three things in it are worth more than the code:
   and the doc page the spec was mined from removed, by hardlink so nothing can
   be followed out. `qual audit` checks it.
 
-**One thing found while building this, worth acting on in the research repo:**
-the research harness leaves `WebSearch`/`WebFetch` enabled. Every GEOS example
-deck is on GitHub, and the container has network — so the corpus filtering is
-defeasible by an agent that thinks to fetch a URL. The starter kit forbids both
-at the validity floor and pins it with a test. Whether any past rollout actually
-did this is checkable from the transcripts and probably should be checked.
+**Two things found while building this, both worth acting on in the research
+repo.**
 
-## 3. How much API spend to authorise
+*The corpus mount carries git history* — the big one, written up separately in
+[`2026-09-12_CONTAMINATION_git-history.md`](2026-09-12_CONTAMINATION_git-history.md).
+This kit was immune by construction because it assembles its corpus from an
+include list rather than filtering a checkout; that is now stated as the design
+rule and pinned by a test.
 
-**$15, on a key with a hard per-key limit set to $15. Expect ~$7.**
+*`WebSearch`/`WebFetch` are enabled in the research harness.* Every GEOS example
+deck is on GitHub and the container has network, so the corpus filtering is
+defeasible by an agent that thinks to fetch a URL. The kit forbids both at the
+validity floor. Whether any past rollout did it is checkable from the
+transcripts — and now easy to check, with `qual inspect`.
 
-This revises the $10 you suggested upward, and the reason is a measurement, not
-caution. The smoke rollout billed **$0.134** — identical to the research
-harness's figure despite halving wall-clock. At that price:
+## 3. How much API spend to ask for
 
-| | rollouts | cost |
+**A couple of dollars, on their key, and say explicitly that spending more is
+not a better submission.**
+
+This has moved twice. It started at your $10, went to $15 on a cost
+measurement, and has now come back down because the constraint changed: the
+money is the student's, and — your steer, and it is the right one — what we
+actually want to see is how they think and test, not how much compute they can
+burn. Depth on a small set is the better shape anyway.
+
+A rollout is **$0.11–0.13** billed and 11–13 minutes, measured against account
+deltas on this kit. Two shapes are written into `TASK.md`, both labelled as
+complete submissions:
+
+| shape | rollouts | cost |
 |---|---:|---:|
-| seed baseline, 4 train tasks × 2 seeds | 8 | $1.07 |
-| search, ~6 candidates × 4 tasks × 1 seed | 24 | $3.22 |
-| proposer LLM calls | — | ~$0.10 |
-| re-running what breaks the first time | ~8 | $1.07 |
-| champion + seed on 3 test tasks × 2 seeds | 12 | $1.61 |
-| **total** | **~52** | **~$7.10** |
+| **frugal**: 2 train tasks × 1 seed, 4 candidates, 2 test tasks | ~14 | **~$1.80** |
+| standard: 4 train × 1 seed, 6 candidates, 3 test × 2 seeds | ~44 | ~$5.70 |
 
-**Keep the ceiling at $15 even though the plan is ~$7.** The ceiling is a safety
-limit, not a target, and the 15-hour version needs *more* slack per hour rather
-than less: a student with three hours of run time has no room to absorb one
-wasted afternoon. At $10 the margin is 29% and a single bad run eats it — and a
-student who runs out mid-search loses the comparison entirely, because a
-half-evaluated candidate cannot be compared with a fully evaluated one.
+The default `--budget` ceiling is now $5. The kit's `BudgetGuard` still refuses
+to start a rollout past the ceiling and still prices from the account rather
+than the transcript, but the enforceable boundary is the per-key limit on their
+own OpenRouter key, and `TASK.md` tells them to set one.
 
-The levers if you do want to hold $10 are written into the task statement
-anyway: evaluate candidates at one seed and re-run only finalists at two; kill a
-candidate after two down tasks.
+### What the task now optimises for
 
-**Do not hand over a key with the research budget behind it.** OpenRouter
-supports a per-key spend limit; set it. The kit's own guard is a second layer
-that reads `/api/v1/credits` and refuses to start a rollout past the ceiling, but
-the enforceable boundary should be at the key.
+Following your steer, `TASK.md` leads with **"What we are actually looking
+for"** before it says anything about method or budget, and the assessment order
+is:
+
+1. **How you find things out** — did you read the transcripts, the decks, the
+   logs; are your decisions traceable to something you observed;
+2. judgement about what to measure;
+3. honesty of the numbers;
+4. the reasoning in the one-pager;
+5. code quality;
+6. the write-up as a vehicle for the above;
+7. whether the number went up — least important.
+
+It also says plainly that four rollouts read line by line teach more than forty
+skimmed, and the first thing to cut under pressure is tasks and candidates, not
+reading.
+
+To make that reachable rather than exhortation, the kit gained **`qual inspect
+<workspace>`**: tool mix, the call-by-call trace with the salient argument of
+each call, which parts of the corpus were actually opened, and the deck produced
+with its weakest sections named. It is described in `TASK.md` as the most useful
+command in the kit, and it was built and verified against real transcripts from
+the 2026-09-11 screen.
 
 ### The train/test sizing question you raised
 
-Small train/test is not a budget compromise here — it is the right design. The
-binding constraint is the *task pool*, not the money: only ~7 tasks have both
-headroom and reproducibility, and they are 4 physics families. Four train tasks
-at two seeds is eight rollouts per comparison, which is what makes a search of
-eight candidates affordable at all. The honest consequence, stated in the task
-statement: a paired interval at n=4 will usually span zero, and reporting that
-plainly is the expected outcome rather than a failure.
+Small train/test is not a budget compromise — it is the right design. The
+binding constraint is the *task pool*: only seven tasks have headroom,
+reproducibility and a low enough copy ceiling, and they are five physics
+families. The honest consequence, stated in the task statement: a paired
+interval at n=2–4 will usually span zero, and reporting that plainly is the
+expected outcome rather than a failure.
 
 ### The cost lesson the kit teaches by accident
 
@@ -376,77 +409,68 @@ One rollout, priced three ways:
 Both wrong numbers have causes and neither is patchable — the token math cannot
 see the resent conversation (this provider reported no cache-read tokens at
 all), and the CLI prices at the list price of a model it only assumes it is
-talking to. This is the same wall the August campaign hit from the other
-direction, and it is now a documented constant in the kit with the guard reading
-the account instead. Worth making the student meet it early; it is one of the
-few things in this project that is genuinely counter-intuitive.
+talking to. Same wall the August campaign hit from the other direction. It is
+now a documented constant in the kit, with the guard reading the account
+instead.
 
-## 4. Repo or zip
+## 4. Repo, and who pays
 
-**A private GitHub repo, and they submit a pull request.** The zip's only
-advantage is saving them one `git clone`, and it costs four things that matter:
+**A public GitHub repo at
+[`matt-seb-ho/geos-harness-qual`](https://github.com/matt-seb-ho/geos-harness-qual),
+student submits a pull request.** Not a zip: the PR is itself assessable
+(incremental commits versus a midnight blob, whether they can keep their changes
+separable), you will patch the kit mid-task and `git pull` beats a second zip,
+and the artifacts have to come back with history attached.
 
-1. **The submission format is itself a signal.** A PR shows whether they commit
-   incrementally or dump one 2,000-line blob at midnight, whether they can write
-   a commit message, and whether they can keep their changes separable from the
-   kit. None of that survives a zip, and all of it predicts what collaborating
-   with them is like.
-2. **You will patch the kit while they are working on it.** Something will be
-   wrong — it always is. With a repo that is `git pull`; with a zip it is a
-   second zip and a student silently working against a stale copy, which then
-   contaminates their numbers in a way neither of you can see.
-3. **The artifacts have to come back.** The ledger, the run log, the champion
-   adapter, the write-up. A PR carries all of it with history attached; a
-   returned zip carries a final state you cannot interrogate.
-4. **It is the same workflow as actually contributing**, which is the thing the
-   qualification task is trying to predict.
+Public is your call and the reasoning holds — the GEOS decks and the
+documentation the specifications were mined from are already on GitHub. What is
+newly public is the *pairing*: spec ↔ reference deck ↔ split assignment, in one
+place, in a form a scraper can use. The practical consequence is a shelf life
+rather than a leak: a model trained after this repo is indexed may have seen the
+pairing, at which point these seven tasks stop measuring authoring for that
+model. Worth a line in the paper when the time comes, and worth re-checking the
+copy ceiling against any newer model we evaluate. Nothing to do now.
 
-### Private is load-bearing, not caution
+### The key: bring your own
 
-`tasks/` contains seven task specifications **paired with their reference
-decks**. Publishing that publicly puts a benchmark's answer key on the open web,
-where it gets scraped and lands in the next model's training data — and then the
-benchmark measures recall rather than authoring, permanently, for us and for
-anyone else using these tasks. The GEOS decks themselves are public (LGPL,
-already on GitHub); it is the *pairing with the specifications and the split*
-that must not be.
+Per your advisor, no keys to people outside the group. So the kit is BYOK and
+`TASK.md` says so directly, along with the thing that matters more: **we are
+asking a student to spend their own money, so the ask should be small and a
+bigger bill must not read as a better submission.**
 
-So: private repo, student added as a collaborator, they branch and open a PR
-against it. If they would rather fork, the fork inherits the private visibility
-— that is fine. Add a line to the invitation saying the contents are not to be
-posted publicly, including in a portfolio.
+| shape | rollouts | cost |
+|---|---:|---:|
+| frugal: 2 train tasks × 1 seed, 4 candidates, 2 test tasks | ~14 | **~$1.80** |
+| standard: 4 train × 1 seed, 6 candidates, 3 test × 2 seeds | ~44 | ~$5.70 |
 
-### Concretely
+Both are labelled complete submissions. The default `--budget` ceiling dropped
+from $15 to $5, and they are told to set a hard per-key limit on OpenRouter and
+to say up front if cost is a blocker rather than quietly cutting the work.
 
-```bash
-gh repo create <org>/geos-harness-qual --private --source=. --push
-gh api -X PUT repos/<org>/geos-harness-qual/collaborators/<student> -f permission=push
-```
-
-Then send them: the repo link, `TASK.md`, an OpenRouter key capped at $15, and
-the date you want the one-pager by.
+**One thing to decide:** whether you want to offer reimbursement. $2–6 is not
+much, but it is not nothing to an undergraduate, and "bring your own key *and*
+your own money" is a slightly different ask from "bring your own key". If
+reimbursement is possible, saying so in the invitation removes a reason for
+someone good to decline.
 
 ## What is still open
 
-- **The student's key.** Create it with a $15 per-key cap before sending the repo.
-- **Repo visibility.** Pushed to `matt-seb-ho/geos-harness-qual` (branch
-  `master`). Confirm it is private — §4 says why that is load-bearing rather
-  than cautious.
-- **Only `claude` is verified end to end.** The `acpx` harnesses have correct
-  flags and a present binary but nobody has run one. `qual harnesses` says so
-  rather than implying otherwise; if a student picks one, budget an hour for
-  auth, and note that ACP has no settings-file hook mechanism, so a
-  configuration built on hooks will silently do nothing there. `Harness.
-  unsupported(config)` reports that rather than letting it pass.
+- **Fix the git leak before the next rollout.** One line in
+  `create_filtered_geos_copy`'s `_ignore`; the re-run of the screen is the
+  expensive part.
+- **Decide on reimbursement.** BYOK is settled, but $2–6 of a student's own
+  money is a slightly different ask from a key, and offering to cover it removes
+  a reason for someone good to decline.
+- **Only `claude` is verified end to end.** The two `acpx` harnesses have
+  correct flags and a present binary but nobody has run one. `qual harnesses`
+  says so, and `Harness.unsupported(config)` reports what a given agent will
+  silently ignore (ACP has no settings-file hooks).
 - **The mock cannot see most of the search space.** It rewards vocabulary
-  overlap and retries; tools, hooks, MCP and turn caps are invisible to it. That
-  is documented in three places, but a student who optimises against it anyway
-  will produce a loop that does nothing on real rollouts. It is a deliberate
-  trap and one of the more informative things the exercise can detect.
-- **Nobody has measured hook-vs-retry.** The kit offers both an in-container
-  `Stop` hook and a host-side retry loop, and says plainly that we do not know
-  which is cheaper. If a student answers that, it is a result we want.
+  overlap and retries; tools, hooks, MCP and turn caps are invisible to it.
+  Documented in three places, and still a trap worth watching for.
+- **Nobody has measured hook-vs-retry**, and the kit says so. If a student
+  answers it, that is a result we want.
 - **The copy ceiling has never been measured on the full 46-task pool.** It took
-  minutes on seven. If it sits above the seed across the pool the way it does on
-  three of our four training tasks, it changes how every seed baseline in this
-  project should be read, and it is free to find out.
+  minutes on seven. On three of our four training tasks it sits *above* the seed
+  agent's score, which would change how every seed baseline here should be read.
+  Worth doing at the same time as the screen re-run.

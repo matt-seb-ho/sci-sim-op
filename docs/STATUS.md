@@ -72,6 +72,14 @@ would have put a wellbore in the poroelastic split was caught by an assertion.
 headroom). This is why n=5 comparisons were uninterpretable, and why the screen is the
 highest-value purchase available.
 
+> **Superseded 2026-09-12.** "At ceiling" is very likely "read the answer". The
+> `/geos_lib` mount is a copy of a git checkout including `.git`, so every blocked
+> deck is recoverable with `git show`; 59 of the screen's 80 rollouts ran git
+> against it and 29 of 40 tasks got their own blocked deck back, including almost
+> every task that scored a flat 1.000. See
+> [`2026-09-12_CONTAMINATION_git-history.md`](2026-09-12_CONTAMINATION_git-history.md).
+> The screen needs re-running before its study-set selection is used.
+
 **8. Cost cannot be priced from tokens.** Transcript-based estimates over-predict 2.25×
 and structurally — fresh input alone exceeds the true total. Every arm is now bracketed
 with a billing-API read.
@@ -89,7 +97,8 @@ it isolates the model, and prior is that configuration explains most of it.
 
 | | | needs |
 |---|---|---|
-| **now** | 40-task screen → study set, splits, achievable MDE | in flight, ~$10 |
+| **now** | **fix the git-history leak, then re-run the 40-task screen** | ~$10 |
+| | ~~40-task screen → study set~~ — done, but contaminated | — |
 | **then** | seal test, pre-register endpoint/MDE/stopping rule | free |
 | | deepseek probe: is the latency gap the model or the config? | ~$1 |
 | **blocked on funding** | H1 search vs seed, **with** H2 compute-matched baseline | $20 |
