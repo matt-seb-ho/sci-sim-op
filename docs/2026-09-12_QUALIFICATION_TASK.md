@@ -112,33 +112,99 @@ different harnesses are not comparable. Whether an adapter transfers across
 harnesses is H6/H7 of the research programme and is flagged as a separate
 experiment if they have budget left.
 
+### Masking: SIGA's policy exactly, plus a measurement it never had
+
+The GEOS benchmark is built *from* the example collection the agent is allowed
+to read, so masking is load-bearing. The kit now runs SIGA's rule, via the
+vendored `treesim.variant_stem_keys`:
+
+- lowercase the stem and strip nine variant suffixes **transitively to a
+  fixpoint** — `_base_iterative`, `_base_direct`, `_iterative_base`,
+  `_direct_base`, `_iterative`, `_direct`, `_benchmark`, `_smoke`, `_base`;
+- drop keys under **10 characters** or in `{base, benchmark, input, inputs,
+  problem, model, smoke}`, without which `base.xml` blanks the corpus;
+- block every file in the tree whose keys intersect the blocked set;
+- block the documentation page the spec was mined from, via `example_pairs.jsonl`
+  and SIGA's own label regex.
+
+Two widenings, both already in the research repo rather than inventions: `.geos`
+dependency files count as leaky alongside `.xml`, and the variant scan covers
+the whole source tree rather than `inputFiles/` alone. The effect is visible —
+`TutorialPoroelasticity` now also blocks `_base_iterative`, and
+`triaxialDriverExample` its three `.geos` tables.
+
+**This matters more than it sounds: several specifications name their own
+reference files.** `TutorialPoroelasticity` ends by pointing at
+`inputFiles/poromechanics/PoroElastic_Terzaghi_base_direct.xml`. It is gone, and
+so is `_base_iterative`, which the spec never mentions and which is not in the
+ground-truth directory either.
+
+### The part a filename rule cannot settle, and the task it cost us
+
+Name masking removes the answer and its variants. It does not remove a
+*different* example that shares a skeleton — and it must not, because reading a
+comparable example is the intended workflow. So where that line falls is now
+measured rather than argued. `qual audit --deep` scores every deck still
+readable in a task's corpus against that task's reference:
+
+| task | copy ceiling | seed agent |
+|---|---:|---|
+| ExampleSPE11b | 0.432 | 0.51 / 0.51 |
+| TutorialPoroelasticity | 0.509 | 0.49 / 0.42 |
+| AdvancedExamplePureThermalDiffusionWellbore | 0.580 | 0.34 / 0.35 |
+| ExamplesingleFracCompression | 0.591 | 0.78 / 0.82 |
+| kgdToughnessDominated | 0.591 | 0.86 / 0.87 |
+| ExampleVerticalPoroElastoPlasticWellbore | 0.615 | 0.53 / 0.52 |
+| triaxialDriverExample | 0.776 | 0.90 / 0.86 |
+| ~~ExampleThermoporoelasticConsolidation~~ | **0.856** | 0.87 / 0.61 |
+
+**One task failed this and is gone.** `ExampleThermoporoelasticConsolidation`
+had a copy ceiling of 0.856 via `ThermoPoroPlastic_consolidation_base.xml` — a
+*plastic* variant of the same problem, which no suffix rule reduces to the
+answer's stem. Copying it scored as well as doing the task, so a loop could have
+won on it by learning to plagiarise. Replaced by `ExampleSPE11b`: ceiling 0.432,
+seed 0.51/0.51, and the flow family, which keeps test structurally distant from
+train. Threshold for "degenerate" is 0.80, sitting between the task that failed
+(0.856) and the highest survivor (0.776).
+
+**The finding worth carrying back to the research repo:** on three of the four
+training tasks the copy ceiling is *above* what the seed harness scores.
+Retrieval alone beats our seed agent. That is not a contamination failure —
+nothing here is close to 1.0, so authoring still does most of the work — but it
+does mean a chunk of what we have been calling agent performance is reachable by
+finding the nearest example, and we have never measured that on the full
+46-task pool. It is roughly an afternoon of free compute to do so, and it would
+change how the seed baseline should be read.
+
 ### Which tasks, and why seven
 
-From the 40-task screen (80 rollouts, 2026-09-11):
+From the 40-task screen (80 rollouts, 2026-09-11) plus the ceiling test:
 
 - twelve tasks score a flat **1.000 at both seeds** — no headroom, so no
   candidate can beat the seed on them;
 - `faultVerification` times out at both seeds; `TutorialHydraulicFractureWithAdvancedXML`
   sits at 0.016;
-- six more produce a deck at one seed and nothing at the other.
+- six more produce a deck at one seed and nothing at the other;
+- one more is degenerate on the copy ceiling (above).
 
-The seven shipped are the ones with measured headroom *and* reproducible scores,
-split by physics family so a family lives entirely in one split:
+The seven shipped have measured headroom, reproducible scores, and a ceiling low
+enough that the headroom has to be earned. Split by family, so a family lives
+entirely in one split:
 
-| split | family | task | screen |
-|---|---|---|---|
-| train | wellbore | ExampleVerticalPoroElastoPlasticWellbore | 0.53 / 0.52 |
-| train | wellbore | AdvancedExamplePureThermalDiffusionWellbore | 0.34 / 0.35 |
-| train | poroelastic | TutorialPoroelasticity | 0.49 / 0.42 |
-| train | poroelastic | ExampleThermoporoelasticConsolidation | 0.87 / 0.61 |
-| test | fracture | ExamplesingleFracCompression | 0.78 / 0.82 |
-| test | fracture | kgdToughnessDominated | 0.86 / 0.87 |
-| test | driver | triaxialDriverExample | 0.90 / 0.86 |
+| split | family | task | screen | ceiling |
+|---|---|---|---|---|
+| train | wellbore | ExampleVerticalPoroElastoPlasticWellbore | 0.53 / 0.52 | 0.62 |
+| train | wellbore | AdvancedExamplePureThermalDiffusionWellbore | 0.34 / 0.35 | 0.58 |
+| train | poroelastic | TutorialPoroelasticity | 0.49 / 0.42 | 0.51 |
+| train | flow | ExampleSPE11b | 0.51 / 0.51 | 0.43 |
+| test | fracture | ExamplesingleFracCompression | 0.78 / 0.82 | 0.59 |
+| test | fracture | kgdToughnessDominated | 0.86 / 0.87 | 0.59 |
+| test | driver | triaxialDriverExample | 0.90 / 0.86 | 0.78 |
 
-The kit re-measures the seed on its own configuration; the screen column is
-shipped as a prior and labelled as one. (Sanity check: the smoke rollout scored
-**0.526** on `TutorialPoroelasticity` against the screen's 0.49/0.42 — same band,
-slightly better, consistent with the curated corpus.)
+The kit re-measures the seed on its own configuration; the screen column ships
+as a prior and is labelled as one. (Sanity check: two real rollouts scored
+**0.526** and **0.410** on `TutorialPoroelasticity` against the screen's
+0.49/0.42 — same band.)
 
 ### The search space is the harness, not an "adapter"
 
@@ -224,7 +290,7 @@ src/qualkit/    tasks, config, agents, corpus, rollout, scoring, evaluate,
                 ledger, mock, llm, cli      (~3,500 lines, 840 of them the
                 vendored scorer)
 evolve/loop.py  THE STUB. The only file that is theirs.
-tests/          60 tests, offline, a few seconds
+tests/          64 tests, offline, a few seconds
 TASK.md         the task statement
 docs/CONTAMINATION.md
 ```
@@ -380,3 +446,7 @@ the date you want the one-pager by.
 - **Nobody has measured hook-vs-retry.** The kit offers both an in-container
   `Stop` hook and a host-side retry loop, and says plainly that we do not know
   which is cheaper. If a student answers that, it is a result we want.
+- **The copy ceiling has never been measured on the full 46-task pool.** It took
+  minutes on seven. If it sits above the seed across the pool the way it does on
+  three of our four training tasks, it changes how every seed baseline in this
+  project should be read, and it is free to find out.
