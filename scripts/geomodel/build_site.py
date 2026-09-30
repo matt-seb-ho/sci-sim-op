@@ -46,6 +46,18 @@ EXCLUDE_FILES: dict[tuple[str, str], str] = {
     ("1111", "well_survey_from_earth_model.csv"): "exported from the Phase 2B earth model (prior model)",
     ("1146", "Moore_UtahFORGE_overview_Stanford_2020.pdf"): "Feb-2020 Stanford paper (post-cut): summarises the site model, incl. a top-of-granitoid cross-section, the contact dip and the 58-32 stress gradients",
 }
+# v0.1 (2026-09-30): the GDR later rewrote or re-uploaded some pre-cut
+# submissions. 1139's zip was replaced with 2018-2021 data in Oct 2021.
+EXCLUDE_FILES[("1139", "NMV GWGeochem (1).zip")] = "re-uploaded Oct 2021 with 2018-2021 data (post-cut); the 2019 xlsx stays"
+
+# GDR descriptions that are post-cut text. 1146's description is the abstract of
+# the Feb-2020 Stanford paper excluded above (stress gradients, SHmax azimuth, BHT).
+ABOUT_OVERRIDE = {
+    "1146": ("Conference paper on the 2017 and 2019 stimulations of well 58-32. The paper and its "
+             "abstract are not included here (they were published after August 2019). The "
+             "stimulation data are in gdr_1149."),
+}
+
 # More per-file / per-submission ("*") exclusions from the leak scan live in
 # site_v0A_excludes.json next to the site (a list of {id, file, reason}).
 
@@ -101,6 +113,8 @@ def select_records(variant: str = "A") -> list[dict]:
 
 
 def about_text(r: dict) -> str:
+    if r["id"] in ABOUT_OVERRIDE:
+        r = dict(r, description=ABOUT_OVERRIDE[r["id"]])
     authors = "; ".join(
         a["name"] + (f" ({a['affiliation']})" if a.get("affiliation") else "")
         for a in r.get("authors") or []

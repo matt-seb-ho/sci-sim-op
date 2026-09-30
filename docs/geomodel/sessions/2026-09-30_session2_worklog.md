@@ -100,3 +100,8 @@ Leak-scan note for Phase 2: "GRANITIOD" also occurs in 1516's 16B photo log (pos
 - [x] sandbox verified (37/37; `sandbox/verify_20260930T010516.log`)
 - [x] probe scored (3 samples); A1 read end to end and scored; 3 A seeds + 1 B seed scored
 - [x] morning report + README/spec status updated + DONE file
+
+## Follow-up (2026-09-30 morning, with Matt)
+
+- 09:45 **Leak fix → site v0.1** (`site_v0A1`, `site_v0B1`; `build_site.py` `ABOUT_OVERRIDE` + exclusion): `gdr_1146/ABOUT.txt` description (the Feb-2020 abstract) replaced by a neutral stub; `gdr_1139/NMV GWGeochem (1).zip` dropped (GDR re-uploaded it in Oct 2021 with 2018–2021 data; the 2019 xlsx stays). Sweep of all archive member dates and PDF creation dates: 1006's EOWR (2022) and dipole-sonic (2021) zips are only re-packaged 2017–18 files (no 2019+ text) → kept. Leak scan v0A1: nothing new, only the dropped zip's hits gone → PASS.
+- 09:52 Re-runs (A01 seeds 1–3, B01 seeds 1–2) **all failed within 1–15 min**: OpenRouter returned 402 `in_flight_budget_exhausted` ("exceed your available credits"). The **account** has $3,725 of credits with $3,724.97 used (shared with other keys); our key's $250 limit is not the binding one. Runs renamed `runs/failed402_*`, not scored. Needs credits added before re-running.
