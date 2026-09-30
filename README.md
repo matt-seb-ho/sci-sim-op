@@ -14,6 +14,13 @@ python3 scripts/evolve.py preflight   # what would make a real run meaningless
 python3 scripts/evolve.py plan        # search budgets the baselines can match
 ```
 
+**Project scope:** this repository is the SIGA follow-up. It has three objectives:
+*depth* (own more of the scientist's pipeline, now the geological model before GEOS),
+*breadth* (more simulators), and *methods* (self-evolution). It rests on three method
+tenets: domain adaptation, continual learning and harness self-evolution. The adapter
+search described below is the *methods* work. See
+[`docs/PROJECT_PRIMER.md`](docs/PROJECT_PRIMER.md).
+
 ## Start here
 
 | If you want to know | Read |
@@ -23,12 +30,13 @@ python3 scripts/evolve.py plan        # search budgets the baselines can match
 | what the literature actually says as of Aug 2026 (60 verified papers) | [`docs/LITERATURE_2026-08.md`](docs/LITERATURE_2026-08.md) |
 | the strongest published threat to this premise, and our answer | [`docs/NOTES_2607.12227.md`](docs/NOTES_2607.12227.md) |
 | what must change elsewhere before a real run means anything | [`docs/INTEGRATION_REQUIREMENTS.md`](docs/INTEGRATION_REQUIREMENTS.md) |
-- [`docs/EXPERIMENT_PLAN.md`](docs/EXPERIMENT_PLAN.md) — the consolidated experiment plan.
+| the consolidated experiment plan | [`docs/EXPERIMENT_PLAN.md`](docs/EXPERIMENT_PLAN.md) |
 | the first result, and why its two views disagree | [`docs/EXPERIMENT_01_proposer_control.md`](docs/EXPERIMENT_01_proposer_control.md) |
 | what the evaluation protocol refuses, and why | [`docs/EXPERIMENT_02_protocol_dryrun.md`](docs/EXPERIMENT_02_protocol_dryrun.md) |
 | whether a real model can follow the proposer contract | [`docs/EXPERIMENT_03_proposer_smoke.md`](docs/EXPERIMENT_03_proposer_smoke.md) |
 | the sequence for a first real run | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
 | what porting to a new simulator actually costs | [`docs/ADDING_A_SIMULATOR.md`](docs/ADDING_A_SIMULATOR.md) |
+| **the new geological-model task (follow-up item 1, depth)** | [`docs/geomodel/README.md`](docs/geomodel/README.md) |
 | how any of this was decided | [`worklogs/`](worklogs/) |
 
 ## The five facts that determine the design

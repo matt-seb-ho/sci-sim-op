@@ -1,5 +1,8 @@
 # Meeting prep — Dr. Sherman (LLNL, GEOS)
 
+> **This is the prep doc.** For what was actually said and what we took from it, see
+> [`geomodel/MEETING_2026-09-11_sherman_notes.md`](geomodel/MEETING_2026-09-11_sherman_notes.md).
+
 **When:** 2026-09-11 · **Length:** ~60 min · **Owner:** Matt Ho
 **Purpose:** (1) define what the collaboration actually is, (2) settle how we use LLNL
 resources, (3) **elicit the real computational-geoscience workflow** so we can design and

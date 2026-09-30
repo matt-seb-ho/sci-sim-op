@@ -102,6 +102,9 @@ run next — is where the value is.
 actually consume researcher time before we choose which to automate; guessing produces a
 benchmark nobody wants.
 
+> **Unblocked 2026-09-11.** Sherman's answer: the geological model of a site consumes
+> 80–90% of the time. Work started 2026-09-23 in [`geomodel/`](geomodel/README.md).
+
 **What Goal 1 contributes:** the manifest-based candidate is the piece that carries this.
 A wider scope is a larger manifest with more component types, not a new codebase.
 

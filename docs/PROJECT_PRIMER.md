@@ -23,6 +23,31 @@ thinking rather than low-level detail. The framing we prefer is not *replace
 scientists*; it is **agents absorb the low-level work, and they do it in parallel and
 without needing sleep, so scientific progress compounds faster.**
 
+### The shape of the follow-up, as restated 2026-09-23
+
+**Objective (the only one):** accelerate science by building tools that automate parts
+of a scientist's work, so scientists can work at the level of ideas and direction.
+
+**Three objectives for this follow-up paper:**
+
+| | objective | meaning | status 2026-09-23 |
+|---|---|---|---|
+| 1 | **Depth** | own more of the pipeline. A scientist's workflow runs a → b → c; SIGA handled only *b* (a complete spec → deck → run). | **active.** The target is the *geological model* that precedes GEOS. See [`geomodel/`](geomodel/README.md). |
+| 2 | **Breadth** | more domains and simulators than GEOS / LAMMPS / OpenFOAM | not started |
+| 3 | **Methods** | understand, implement and test the latest self-evolution methods, then develop our own | started first. See §6 item 3. |
+
+**Three method tenets:** a method should deliver all three.
+1. **Domain adaptation**: a generic coding agent becomes competent in a niche
+   scientific domain. This is T1, "studying".
+2. **Continual learning**: the system gets better as it sees more tasks, sites and data.
+   Sherman's "new data arrived, update the model" task is a natural instance.
+3. **Harness self-evolution**: the system improves its own harness. This is T2 and T3.
+
+SIGA's lightweight adapters **may** be part of the method but are not required.
+
+**Domain expert:** Chris Sherman (LLNL, GEOS developer). Meetings every two weeks from
+2026-09-11.
+
 ## 2. The three research threads
 
 These are the intellectual content. Everything we build should advance at least one.
@@ -124,7 +149,7 @@ across four implementations, with the variable cost entirely in the scoring func
 
 ## 6. The follow-up programme (from SIGA)
 
-Three directions. **Only T2/item 3 is unblocked today**, and it carries the other two.
+Three directions. Item 3 started first. **Item 1 is also active as of 2026-09-23.**
 
 ### Item 1 — Expand the *scope* of what the agent handles (depth)
 
@@ -136,8 +161,13 @@ makes it a translation task against a code book. We want the agent to own more.
 - **The right version:** talk to domain experts about what their workflows actually look
   like, then build benchmarks and methods around *those*. Guessing produces a benchmark
   nobody wants.
-- **Status:** Matt to schedule meetings with domain collaborators. On his personal TODO.
-- **Blocked on:** LLNL / UCI partner availability.
+- **Status (2026-09-23): unblocked and active.** Sherman (2026-09-11 meeting) told us
+  the geological model of a site takes 80–90% of the effort and the GEOS run is the easy
+  rest. He confirmed that building it is a reasonable target for an LLM agent. Task:
+  **site data → geological model**, starting with Utah FORGE, then a Gulf Coast site
+  (easier) and San Emidio (hardest). The evaluation goes deep on fewer than 10 sites.
+  See [`geomodel/README.md`](geomodel/README.md).
+- ~~**Blocked on:** LLNL / UCI partner availability.~~ Resolved: Sherman, every two weeks.
 
 ### Item 2 — Expand the *breadth* of domains
 
@@ -233,6 +263,7 @@ anything:
 | Read this | For |
 |---|---|
 | [`PROJECT_PRIMER.md`](PROJECT_PRIMER.md) | **← you are here.** Goals, constraints, strategy |
+| [`geomodel/README.md`](geomodel/README.md) | **Item 1 (depth):** the geological-model task, FORGE data, papers |
 | [`2026-09-02_PROJECT_INTENT_raw.md`](2026-09-02_PROJECT_INTENT_raw.md) | The verbatim source note |
 | [`../README.md`](../README.md) | What the code is and how to run it |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The three contracts, the loop, the gates |

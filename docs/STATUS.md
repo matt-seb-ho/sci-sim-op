@@ -1,5 +1,10 @@
 # Status — where the project is, 2026-09-09
 
+> **2026-09-23 update: follow-up item 1 (depth) has started.** After the 2026-09-11
+> meeting with Sherman, the new task is *site data → geological model*, starting with
+> Utah FORGE. It runs in parallel with the self-evolution work below. See
+> [`geomodel/README.md`](geomodel/README.md).
+
 One page. What was done, what was learned, what happens next.
 Detail lives in [`RESEARCH_PROGRAM.md`](RESEARCH_PROGRAM.md),
 [`2026-09-08_BUDGET_PLAN.md`](2026-09-08_BUDGET_PLAN.md),
